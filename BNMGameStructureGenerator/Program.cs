@@ -15,9 +15,16 @@ namespace BNMCppHeaderGenerator
         static void Main(string[] args)
         {
             string dllPath = "./Files/Assembly-CSharp.dll";
-            string outputDir = "BNMHeaders";
+            string outputDir = "BNMResolves";
             bool singleFileMode = args.Contains("--single-file") || args.Contains("-s");
-
+            if (!Directory.Exists("./Files"))
+            {
+                Directory.CreateDirectory("Files");
+            }
+            if (!Directory.Exists("./BNMResolves"))
+            {
+                Directory.CreateDirectory("BNMResolves");
+            }
             if (!File.Exists(dllPath))
             {
                 Console.WriteLine($"Error: {dllPath} not found.");
@@ -150,12 +157,7 @@ namespace BNMCppHeaderGenerator
 
                 foreach (var type in sortedClasses)
                 {
-                    var removalNames = new HashSet<string> {
-                        "BoingBones", "BoingReactor", "BoingBase", "BoingBehavior", "BoingBoneCollider", "BoingEffector", "BoingManagerPostUpdatePump", "BoingManagerPreUpdatePump", "BoingReactorField", "BoingReactorFieldCPUSampler", "BoingReactorFieldGPUSampler", "Output", "Chain", "SharedBoingParams", "Codec", "Collision", "ConditionalFieldAttribute", "MathUtil", "QuaternionUtil", "VectorUtil", "UFOController", "Attribute", "SceneBakeTask", "SceneBakeMode", "MaterialPropertyBlock", "Style", "Dictionary", "ComputeBuffer", "ComputeShader", "DrawBase", "DrawArc", "DrawArrow", "DrawBox", "DrawCircle", "DrawLine", "DrawSphere", "GizmosUtil", "ArcadeGame", "JoustPlayer", "MemoryStream", "ArcadeButtons", "Photon", "ArcadeMachine", "PhotonStream", "Pun", "TMP_Text", "FittingRoomButton", "CosmeticSet", "CheckoutCartButton", "HeadModel", "PurchaseItemButton", "CompositeTriggerEvents", "TrickTreatHoldable", "AdvancedItemState", "PositionState", "DropPositions", "InteractionPoint", "InterpolateState", "ItemStates", "BodyDockPositions", "TransferrableItemSlotTransformOverride", "GrabType", "WorldShareableItem", "TransferrableObject", "CrittersActor", "CrittersActorType", "CrittersActorSpawner", "CrittersActorSpawnerPoint", "CrittersFoodDispenser", "CrittersActorSpawnerPoint", "AnimationCurve", "CreatureSpawnParameters", "SoundBankPlayer", "LiteFloatCompressType", "CosmeticStand", "GorillaGameManager", "MeshMaterialReplacement", "GameModeSerializer", "NativeSizeChangerSettings", "UnityEvent", "GorillaPressableButton", "GTZone", "EquipmentInteractor", "HandHold", "NativeArray", "BezierSpline", "UnityEvent", "UnityEventBase", "UnityEventInvokableCall", "UnityEventCallState", "UnityEventTools", "UnityEventType", "UnityEvent_1", "UnityEvent_2", "UnityEvent_3", "UnityEvent_4", "Collections", "NativeArray", "NativeList", "NativeHashMap", "NativeHashSet", "NativeQueue", "NativeStack", "NativeMultiHashMap", "NativeSlice", "NativeStream", "NativeText", "NativeString", "NativeArray_1", "NativeList_1", "NativeHashMap_2", "NativeHashSet_1", "NativeQueue_1", "NativeStack_1", "NativeMultiHashMap_2", "NativeSlice_1", "NativeStream_1", "NativeText_1", "NativeString_1", "SplineContainer", "SplineWalkerMode", "NetworkComponent", "NetworkSceneObject", "MonoBehaviourPun", "Int32", "CatmullRomSpline", "MeshFilter", "BetterDayNightManager", "VRRigCollection", "UnityLayer", "Texture", "AssetReferenceT", "AssetReference", "AssetReference_1", "AssetReference_2", "AssetReference_3", "AssetReference_4", "AssetReference_5", "AssetReference_6", "AssetReference_7", "AssetReference_8", "UnityEvent", "HoldableObject", "Speaker", "Recorder", "MicWrapper", "WatchableGenericSO", "BaseGuidedRefTargetMono", "PropertyAttribute"
-                    };
-                    if ((type.Namespace != null && (type.Namespace.StartsWith("BoingKit") || type.Namespace.StartsWith("CjLib") || type.Namespace.StartsWith("TMPro") || type.Namespace.StartsWith("GorillaNetworking") || type.Namespace.StartsWith("emotitron") || type.Namespace.StartsWith("Unity.Collections"))) ||
-                        removalNames.Contains(type.Name) ||
-                        (type.BaseType != null && removalNames.Contains(type.BaseType.Name)))
+                    if (type.Namespace != null && (type.Namespace.StartsWith("BoingKit") || type.Namespace.StartsWith("CjLib") || type.Namespace.StartsWith("TMPro") || type.Namespace.StartsWith("GorillaNetworking") || type.Namespace.StartsWith("emotitron") || type.Namespace.StartsWith("Unity.Collections")))
                     {
                         output.AppendLine($"    // {type.FullName} is not setup, removed");
                         output.AppendLine();
@@ -178,7 +180,7 @@ namespace BNMCppHeaderGenerator
                 output.AppendLine();
             }
 
-            string outputPath = Path.Combine(outputDir, "BNMHeaders.hpp");
+            string outputPath = Path.Combine(outputDir, "BNMResolves.hpp");
             File.WriteAllText(outputPath, output.ToString());
             
             Console.WriteLine();
@@ -186,7 +188,6 @@ namespace BNMCppHeaderGenerator
             
             ValidateGeneratedCode(outputPath);
         }
-
         static void GenerateFolderStructure(List<Type> classes, IGrouping<string, Type>[] groupedClasses, string outputDir)
         {
             foreach (var namespaceGroup in groupedClasses)
@@ -206,12 +207,7 @@ namespace BNMCppHeaderGenerator
 
                 foreach (var type in sortedClasses)
                 {
-                    var removalNames = new HashSet<string> {
-                        "BoingBones", "BoingReactor", "BoingBase", "BoingBehavior", "BoingBoneCollider", "BoingEffector", "BoingManagerPostUpdatePump", "BoingManagerPreUpdatePump", "BoingReactorField", "BoingReactorFieldCPUSampler", "BoingReactorFieldGPUSampler", "Output", "Chain", "SharedBoingParams", "Codec", "Collision", "ConditionalFieldAttribute", "MathUtil", "QuaternionUtil", "VectorUtil", "UFOController", "Attribute", "SceneBakeTask", "SceneBakeMode", "MaterialPropertyBlock", "Style", "Dictionary", "ComputeBuffer", "ComputeShader", "DrawBase", "DrawArc", "DrawArrow", "DrawBox", "DrawCircle", "DrawLine", "DrawSphere", "GizmosUtil", "ArcadeGame", "JoustPlayer", "MemoryStream", "ArcadeButtons", "Photon", "ArcadeMachine", "PhotonStream", "Pun", "TMP_Text", "FittingRoomButton", "CosmeticSet", "CheckoutCartButton", "HeadModel", "PurchaseItemButton", "CompositeTriggerEvents", "TrickTreatHoldable", "AdvancedItemState", "PositionState", "DropPositions", "InteractionPoint", "InterpolateState", "ItemStates", "BodyDockPositions", "TransferrableItemSlotTransformOverride", "GrabType", "WorldShareableItem", "TransferrableObject", "CrittersActor", "CrittersActorType", "CrittersActorSpawner", "CrittersActorSpawnerPoint", "CrittersFoodDispenser", "CrittersActorSpawnerPoint", "AnimationCurve", "CreatureSpawnParameters", "SoundBankPlayer", "LiteFloatCompressType", "CosmeticStand", "GorillaGameManager", "MeshMaterialReplacement", "GameModeSerializer", "NativeSizeChangerSettings", "UnityEvent", "GorillaPressableButton", "GTZone", "EquipmentInteractor", "HandHold", "NativeArray", "BezierSpline", "UnityEvent", "UnityEventBase", "UnityEventInvokableCall", "UnityEventCallState", "UnityEventTools", "UnityEventType", "UnityEvent_1", "UnityEvent_2", "UnityEvent_3", "UnityEvent_4", "Collections", "NativeArray", "NativeList", "NativeHashMap", "NativeHashSet", "NativeQueue", "NativeStack", "NativeMultiHashMap", "NativeSlice", "NativeStream", "NativeText", "NativeString", "NativeArray_1", "NativeList_1", "NativeHashMap_2", "NativeHashSet_1", "NativeQueue_1", "NativeStack_1", "NativeMultiHashMap_2", "NativeSlice_1", "NativeStream_1", "NativeText_1", "NativeString_1", "SplineContainer", "SplineWalkerMode", "NetworkComponent", "NetworkSceneObject", "MonoBehaviourPun", "Int32", "CatmullRomSpline", "MeshFilter", "BetterDayNightManager", "VRRigCollection", "UnityLayer", "Texture", "AssetReferenceT", "AssetReference", "AssetReference_1", "AssetReference_2", "AssetReference_3", "AssetReference_4", "AssetReference_5", "AssetReference_6", "AssetReference_7", "AssetReference_8", "UnityEvent", "HoldableObject", "Speaker", "Recorder", "MicWrapper", "WatchableGenericSO", "BaseGuidedRefTargetMono", "PropertyAttribute"
-                    };
-                    if ((type.Namespace != null && (type.Namespace.StartsWith("BoingKit") || type.Namespace.StartsWith("CjLib") || type.Namespace.StartsWith("TMPro") || type.Namespace.StartsWith("GorillaNetworking") || type.Namespace.StartsWith("emotitron") || type.Namespace.StartsWith("Unity.Collections"))) ||
-                        removalNames.Contains(type.Name) ||
-                        (type.BaseType != null && removalNames.Contains(type.BaseType.Name)))
+                    if (type.Namespace != null && (type.Namespace.StartsWith("BoingKit") || type.Namespace.StartsWith("CjLib") || type.Namespace.StartsWith("TMPro") || type.Namespace.StartsWith("GorillaNetworking") || type.Namespace.StartsWith("emotitron") || type.Namespace.StartsWith("Unity.Collections")))
                     {
                         Console.WriteLine($"Skipping: {type.FullName} (removed)");
                         continue;
@@ -272,7 +268,6 @@ namespace BNMCppHeaderGenerator
             
             ValidateGeneratedCode(outputDir);
         }
-
         static void GenerateCppClass(Type type, StringBuilder output)
         {
             try
@@ -292,9 +287,7 @@ namespace BNMCppHeaderGenerator
                     output.AppendLine($"    // REMOVED: Class '{className}' inherits from its own class type");
                     output.AppendLine($"    struct {className} : Behaviour {{");
                 }
-                else if (type.BaseType != null && type.BaseType.IsClass && type.BaseType != typeof(string) && 
-                         type.BaseType.Namespace != null && !type.BaseType.Namespace.StartsWith("System") && 
-                         !type.BaseType.Namespace.StartsWith("UnityEngine") && type.BaseType != type)
+                else if (type.BaseType != null && type.BaseType.IsClass && type.BaseType != typeof(string) && type.BaseType.Namespace != null && !type.BaseType.Namespace.StartsWith("System") && !type.BaseType.Namespace.StartsWith("UnityEngine") && type.BaseType != type)
                 {
                     output.AppendLine($"    // NOTE: Class '{className}' inherits from other class type '{CleanTypeName(type.BaseType.Name)}'");
                     output.AppendLine($"    struct {className}{baseClass} {{");
@@ -353,7 +346,6 @@ namespace BNMCppHeaderGenerator
                 output.AppendLine();
             }
         }
-
         static void GenerateCppEnum(Type type, StringBuilder output)
         {
             try
@@ -420,7 +412,14 @@ namespace BNMCppHeaderGenerator
                         valueString = value.ToString();
                     }
                     
-                    output.AppendLine($"        {uniqueValueName} = {valueString},");
+                    if (uniqueValueName.ToLower() == "delete")
+                    {
+                        output.AppendLine($"        // {uniqueValueName} = {valueString}, // removed \"delete\" bc it gives error");
+                    }
+                    else
+                    {
+                        output.AppendLine($"        {uniqueValueName} = {valueString},");
+                    }
                 }
 
                 output.AppendLine("    };");
@@ -432,7 +431,6 @@ namespace BNMCppHeaderGenerator
                 output.AppendLine();
             }
         }
-
         static string CleanTypeName(string typeName)
         {
             if (typeName.Contains("`"))
@@ -441,11 +439,9 @@ namespace BNMCppHeaderGenerator
             }
             return typeName;
         }
-
         static string GetBaseClass(Type type, Type currentClass = null)
         {
-            if (type.BaseType == null || type.BaseType == typeof(object))
-                return "";
+            if (type.BaseType == null || type.BaseType == typeof(object)) { return ""; }
 
             string baseTypeName = CleanTypeName(type.BaseType.Name);
             
@@ -484,7 +480,6 @@ namespace BNMCppHeaderGenerator
                     return $" : __REMOVE__{baseTypeName}";
             }
         }
-
         static void GenerateSingletonMethods(Type type, StringBuilder output, HashSet<string> generatedNames)
         {
             try
@@ -518,7 +513,6 @@ namespace BNMCppHeaderGenerator
             {
             }
         }
-
         static void GenerateFieldGetter(FieldInfo field, StringBuilder output, Type currentClass = null)
         {
             try
@@ -538,9 +532,7 @@ namespace BNMCppHeaderGenerator
                     return;
                 }
                 
-                if (currentClass != null && field.FieldType.IsClass && field.FieldType != typeof(string) && 
-                    field.FieldType.Namespace != null && !field.FieldType.Namespace.StartsWith("System") && 
-                    !field.FieldType.Namespace.StartsWith("UnityEngine") && field.FieldType != currentClass)
+                if (currentClass != null && field.FieldType.IsClass && field.FieldType != typeof(string) && field.FieldType.Namespace != null && !field.FieldType.Namespace.StartsWith("System") && !field.FieldType.Namespace.StartsWith("UnityEngine") && field.FieldType != currentClass)
                 {
                     output.AppendLine($"        // REMOVED: Field '{field.Name}' uses other class type {CleanTypeName(field.FieldType.Name)}");
                     output.AppendLine();
@@ -569,13 +561,11 @@ namespace BNMCppHeaderGenerator
                 output.AppendLine();
             }
         }
-
         static void GenerateFieldSetter(FieldInfo field, StringBuilder output, Type currentClass = null)
         {
             try
             {
-                if (field.IsInitOnly)
-                    return;
+                if (field.IsInitOnly) { return; }
 
                 string cppType = GetCppType(field.FieldType, currentClass);
                 if (cppType.Contains("__REMOVE__"))
@@ -592,9 +582,7 @@ namespace BNMCppHeaderGenerator
                     return;
                 }
                 
-                if (currentClass != null && field.FieldType.IsClass && field.FieldType != typeof(string) && 
-                    field.FieldType.Namespace != null && !field.FieldType.Namespace.StartsWith("System") && 
-                    !field.FieldType.Namespace.StartsWith("UnityEngine") && field.FieldType != currentClass)
+                if (currentClass != null && field.FieldType.IsClass && field.FieldType != typeof(string) && field.FieldType.Namespace != null && !field.FieldType.Namespace.StartsWith("System") &&  !field.FieldType.Namespace.StartsWith("UnityEngine") && field.FieldType != currentClass)
                 {
                     output.AppendLine($"        // REMOVED: Field '{field.Name}' uses other class type {CleanTypeName(field.FieldType.Name)}");
                     output.AppendLine();
@@ -623,7 +611,6 @@ namespace BNMCppHeaderGenerator
                 output.AppendLine();
             }
         }
-
         static void GeneratePropertyMethods(Type type, StringBuilder output, HashSet<string> generatedNames)
         {
             try
@@ -657,9 +644,7 @@ namespace BNMCppHeaderGenerator
                             continue;
                         }
                         
-                        if (type != null && property.PropertyType.IsClass && property.PropertyType != typeof(string) && 
-                            property.PropertyType.Namespace != null && !property.PropertyType.Namespace.StartsWith("System") && 
-                            !property.PropertyType.Namespace.StartsWith("UnityEngine") && property.PropertyType != type)
+                        if (type != null && property.PropertyType.IsClass && property.PropertyType != typeof(string) && property.PropertyType.Namespace != null && !property.PropertyType.Namespace.StartsWith("System") &&  !property.PropertyType.Namespace.StartsWith("UnityEngine") && property.PropertyType != type)
                         {
                             output.AppendLine($"        // REMOVED: Property '{property.Name}' uses other class type {CleanTypeName(property.PropertyType.Name)}");
                             output.AppendLine();
@@ -711,15 +696,12 @@ namespace BNMCppHeaderGenerator
                 output.AppendLine();
             }
         }
-
         static void GenerateMethodDeclarations(Type type, StringBuilder output, HashSet<string> generatedNames)
         {
             try
             {
                 BindingFlags methodFlags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static;
-                var methods = type.GetMethods(methodFlags)
-                    .Where(m => !m.IsSpecialName && !m.Name.Contains("<") && !m.Name.StartsWith("get_") && !m.Name.StartsWith("set_") && !m.IsGenericMethod)
-                    .ToArray();
+                var methods = type.GetMethods(methodFlags).Where(m => !m.IsSpecialName && !m.Name.Contains("<") && !m.Name.StartsWith("get_") && !m.Name.StartsWith("set_") && !m.IsGenericMethod).ToArray();
 
                 foreach (var method in methods.OrderBy(m => m.Name))
                 {
@@ -747,9 +729,7 @@ namespace BNMCppHeaderGenerator
                             continue;
                         }
                         
-                        if (type != null && method.ReturnType.IsClass && method.ReturnType != typeof(string) && 
-                            method.ReturnType.Namespace != null && !method.ReturnType.Namespace.StartsWith("System") && 
-                            !method.ReturnType.Namespace.StartsWith("UnityEngine") && method.ReturnType != type)
+                        if (type != null && method.ReturnType.IsClass && method.ReturnType != typeof(string) && method.ReturnType.Namespace != null && !method.ReturnType.Namespace.StartsWith("System") &&  !method.ReturnType.Namespace.StartsWith("UnityEngine") && method.ReturnType != type)
                         {
                             output.AppendLine($"        // REMOVED: Method '{method.Name}' return type uses other class type {CleanTypeName(method.ReturnType.Name)}");
                             output.AppendLine();
@@ -791,9 +771,7 @@ namespace BNMCppHeaderGenerator
                                 break;
                             }
                             
-                            if (type != null && paramType.IsClass && paramType != typeof(string) && 
-                                paramType.Namespace != null && !paramType.Namespace.StartsWith("System") && 
-                                !paramType.Namespace.StartsWith("UnityEngine") && paramType != type)
+                            if (type != null && paramType.IsClass && paramType != typeof(string) && paramType.Namespace != null && !paramType.Namespace.StartsWith("System") && !paramType.Namespace.StartsWith("UnityEngine") && paramType != type)
                             {
                                 output.AppendLine($"        // REMOVED: Method '{method.Name}' parameter '{paramInfo.Name ?? $"param{i}"}' uses other class type {CleanTypeName(paramType.Name)}");
                                 output.AppendLine();
@@ -839,7 +817,6 @@ namespace BNMCppHeaderGenerator
                 output.AppendLine();
             }
         }
-
         static string GetCppType(Type type, Type currentClass = null)
         {
             try
@@ -859,9 +836,7 @@ namespace BNMCppHeaderGenerator
                     return $"__SELF_REF__{CleanTypeName(type.Name)}*";
                 }
 
-                if (currentClass != null && type.IsClass && type != typeof(string) && 
-                    type.Namespace != null && !type.Namespace.StartsWith("System") && 
-                    !type.Namespace.StartsWith("UnityEngine") && type != currentClass)
+                if (currentClass != null && type.IsClass && type != typeof(string) && type.Namespace != null && !type.Namespace.StartsWith("System") && !type.Namespace.StartsWith("UnityEngine") && type != currentClass)
                 {
                     return $"__REMOVE__{CleanTypeName(type.Name)}";
                 }
@@ -884,35 +859,7 @@ namespace BNMCppHeaderGenerator
                         {
                             case "List":
                                 return $"Mono::List<{GetCppType(genericArgs[0], currentClass)}>*";
-                            case "Dictionary":
-                                return "void*";
-                            case "HashSet":
-                                return "void*";
-                            case "Queue":
-                                return $"Mono::Queue<{GetCppType(genericArgs[0], currentClass)}>*";
-                            case "Stack":
-                                return $"Mono::Stack<{GetCppType(genericArgs[0], currentClass)}>*";
-                            case "LinkedList":
-                                return "void*";
-                            case "SortedList":
-                                return $"Mono::SortedList<{GetCppType(genericArgs[0], currentClass)}, {GetCppType(genericArgs[1], currentClass)}>*";
-                            case "SortedSet":
-                                return $"Mono::SortedSet<{GetCppType(genericArgs[0], currentClass)}>*";
-                            case "ObservableCollection":
-                                return $"Mono::ObservableCollection<{GetCppType(genericArgs[0], currentClass)}>*";
-                            case "ReadOnlyCollection":
-                                return $"Mono::ReadOnlyCollection<{GetCppType(genericArgs[0], currentClass)}>*";
-                            case "Lazy":
-                                return $"Mono::Lazy<{GetCppType(genericArgs[0], currentClass)}>*";
-                            case "Task":
-                                return $"Mono::Task<{GetCppType(genericArgs[0], currentClass)}>*";
-                            case "ValueTask":
-                                return $"Mono::ValueTask<{GetCppType(genericArgs[0], currentClass)}>*";
-                            case "Tuple":
-                                var tupleTypes = genericArgs.Select(t => GetCppType(t, currentClass)).ToArray();
-                                return $"Mono::Tuple<{string.Join(", ", tupleTypes)}>*";
-                            case "KeyValuePair":
-                                return $"Mono::KeyValuePair<{GetCppType(genericArgs[0], currentClass)}, {GetCppType(genericArgs[1], currentClass)}>*";
+                                // do more stuff
                             default:
                                 return "void*";
                         }
@@ -932,7 +879,7 @@ namespace BNMCppHeaderGenerator
                     }
 
                     if (type.Namespace == null && !definedTypes.Contains(CleanTypeName(type.Name)))
-                {
+                    {
                         return $"__REMOVE__{CleanTypeName(type.Name)}";
                     }
                     
@@ -989,9 +936,11 @@ namespace BNMCppHeaderGenerator
                     case "MeshRenderer": return "MeshRenderer*";
                     case "Renderer": return "Renderer*";
                     case "ParticleSystem": return "ParticleSystem*";
+                        /*
                     case "GTZone": return "__REMOVE__GTZone";
                     case "UnityLayer": return "__REMOVE__UnityLayer";
                     case "WearablePackedStateSlots": return "__REMOVE__WearablePackedStateSlots";
+                        */
                     default:
                         return $"__REMOVE__{CleanTypeName(type.Name)}";
                 }
@@ -1002,11 +951,9 @@ namespace BNMCppHeaderGenerator
                 return "void*";
             }
         }
-
         static string ToPascalCase(string input)
         {
-            if (string.IsNullOrEmpty(input))
-                return input;
+            if (string.IsNullOrEmpty(input)) { return input; }
 
             var parts = input.Split('_');
             var result = new StringBuilder();
@@ -1016,18 +963,15 @@ namespace BNMCppHeaderGenerator
                 if (!string.IsNullOrEmpty(part))
                 {
                     result.Append(char.ToUpper(part[0]));
-                    if (part.Length > 1)
-                        result.Append(part.Substring(1));
+                    if (part.Length > 1) { result.Append(part.Substring(1)); }
                 }
             }
 
             return result.ToString();
         }
-
         static string ToCamelCase(string input)
         {
-            if (string.IsNullOrEmpty(input))
-                return input;
+            if (string.IsNullOrEmpty(input)) { return input; }
 
             string pascalCase = ToPascalCase(input);
             if (pascalCase.Length > 0)
@@ -1037,7 +981,6 @@ namespace BNMCppHeaderGenerator
 
             return pascalCase;
         }
-
         static void ValidateGeneratedCode(string outputPath)
         {
             try
