@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using System.Reflection;
 using System.IO;
 
-namespace BNMCppHeaderGenerator
+namespace BNMGameStructureGenerator
 {
     internal class Program
     {
@@ -106,7 +106,6 @@ namespace BNMCppHeaderGenerator
             Console.WriteLine("Press any key to exit...");
             Console.ReadKey();
         }
-
         static void GenerateSingleFile(List<Type> classes, IGrouping<string, Type>[] groupedClasses, string outputDir)
         {
             var output = new StringBuilder();
@@ -182,14 +181,6 @@ namespace BNMCppHeaderGenerator
 
                 foreach (var type in sortedClasses)
                 {
-                    if (type.Namespace != null && (type.Namespace.StartsWith("BoingKit") || type.Namespace.StartsWith("CjLib") || type.Namespace.StartsWith("TMPro") || type.Namespace.StartsWith("GorillaNetworking") || type.Namespace.StartsWith("emotitron") || type.Namespace.StartsWith("Unity.Collections")))
-                    {
-                        string prefix = isGlobalNamespace ? "" : "    ";
-                        output.AppendLine($"{prefix}// {type.FullName ?? type.Name} is not setup, removed");
-                        output.AppendLine();
-                        continue;
-                    }
-
                     Console.WriteLine($"Processing: {type.FullName ?? type.Name}");
 
                     if (type.IsEnum)
@@ -245,12 +236,6 @@ namespace BNMCppHeaderGenerator
 
                 foreach (var type in sortedClasses)
                 {
-                    if (type.Namespace != null && (type.Namespace.StartsWith("BoingKit") || type.Namespace.StartsWith("CjLib") || type.Namespace.StartsWith("TMPro") || type.Namespace.StartsWith("GorillaNetworking") || type.Namespace.StartsWith("emotitron") || type.Namespace.StartsWith("Unity.Collections")))
-                    {
-                        Console.WriteLine($"Skipping: {type.FullName ?? type.Name} (removed)");
-                        continue;
-                    }
-
                     Console.WriteLine($"Processing: {type.FullName ?? type.Name}");
 
                     var classContent = new StringBuilder();
