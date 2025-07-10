@@ -79,12 +79,11 @@ namespace BNMCppHeaderGenerator
                                                !t.IsAbstract &&
                                                t.IsPublic &&
                                                !t.Name.Contains("<") &&
-                                               !t.Name.StartsWith("_") &&
-                                               t.Namespace != null).ToList();
+                                               !t.Name.StartsWith("_")).ToList();
 
                 Console.WriteLine($"Found {classes.Count} classes and enums to process...");
 
-                var groupedClasses = classes.GroupBy(t => t.Namespace).OrderBy(g => g.Key);
+                var groupedClasses = classes.GroupBy(t => t.Namespace ?? "Global").OrderBy(g => g.Key);
 
                 if (singleFileMode)
                 {
@@ -118,6 +117,7 @@ namespace BNMCppHeaderGenerator
             output.AppendLine("using namespace BNM::Structures::Unity;");
             output.AppendLine("using namespace BNM::UnityEngine;");
             output.AppendLine("#define O(str) BNM_OBFUSCATE(str)");
+            output.AppendLine("#include \"BNMResolve.hpp\"");
             output.AppendLine();
 
             foreach (var type in classes)
@@ -129,29 +129,54 @@ namespace BNMCppHeaderGenerator
             foreach (var namespaceGroup in groupedClasses)
             {
                 string namespaceName = namespaceGroup.Key;
-                output.AppendLine($"namespace {namespaceName.Replace(".", "::")} {{");
                 
-                var sortedClasses = namespaceGroup.OrderBy(t => t.Name);
-                foreach (var type in sortedClasses)
+                if (namespaceName == "Global")
                 {
-                    if (type.IsEnum)
+                    output.AppendLine("// Global namespace types");
+                    var sortedClasses = namespaceGroup.OrderBy(t => t.Name);
+                    foreach (var type in sortedClasses)
                     {
-                        output.AppendLine($"    enum class {CleanTypeName(type.Name)};");
-                    }
-                    else
-                    {
-                        output.AppendLine($"    struct {CleanTypeName(type.Name)};");
+                        if (type.IsEnum)
+                        {
+                            string underlyingType = GetEnumUnderlyingType(type);
+                            output.AppendLine($"enum class {FormatInvalidName(CleanTypeName(type.Name))} : {underlyingType};");
+                        }
+                        else
+                        {
+                            output.AppendLine($"struct {FormatInvalidName(CleanTypeName(type.Name))};");
+                        }
                     }
                 }
-                
-                output.AppendLine("}");
+                else
+                {
+                    output.AppendLine($"namespace {namespaceName.Replace(".", "::")} {{");
+                    var sortedClasses = namespaceGroup.OrderBy(t => t.Name);
+                    foreach (var type in sortedClasses)
+                    {
+                        if (type.IsEnum)
+                        {
+                            string underlyingType = GetEnumUnderlyingType(type);
+                            output.AppendLine($"    enum class {FormatInvalidName(CleanTypeName(type.Name))} : {underlyingType};");
+                        }
+                        else
+                        {
+                            output.AppendLine($"    struct {FormatInvalidName(CleanTypeName(type.Name))};");
+                        }
+                    }
+                    output.AppendLine("}");
+                }
                 output.AppendLine();
             }
 
             foreach (var namespaceGroup in groupedClasses)
             {
                 string namespaceName = namespaceGroup.Key;
-                output.AppendLine($"namespace {namespaceName.Replace(".", "::")} {{");
+                bool isGlobalNamespace = namespaceName == "Global";
+                
+                if (!isGlobalNamespace)
+                {
+                    output.AppendLine($"namespace {namespaceName.Replace(".", "::")} {{");
+                }
 
                 var sortedClasses = namespaceGroup.OrderBy(t => t.Name);
 
@@ -159,33 +184,37 @@ namespace BNMCppHeaderGenerator
                 {
                     if (type.Namespace != null && (type.Namespace.StartsWith("BoingKit") || type.Namespace.StartsWith("CjLib") || type.Namespace.StartsWith("TMPro") || type.Namespace.StartsWith("GorillaNetworking") || type.Namespace.StartsWith("emotitron") || type.Namespace.StartsWith("Unity.Collections")))
                     {
-                        output.AppendLine($"    // {type.FullName} is not setup, removed");
+                        string prefix = isGlobalNamespace ? "" : "    ";
+                        output.AppendLine($"{prefix}// {type.FullName ?? type.Name} is not setup, removed");
                         output.AppendLine();
                         continue;
                     }
-                    
-                    Console.WriteLine($"Processing: {type.FullName}");
-                    
+
+                    Console.WriteLine($"Processing: {type.FullName ?? type.Name}");
+
                     if (type.IsEnum)
                     {
-                        GenerateCppEnum(type, output);
+                        GenerateCppEnum(type, output, isGlobalNamespace);
                     }
                     else
                     {
-                        GenerateCppClass(type, output);
+                        GenerateCppClass(type, output, isGlobalNamespace);
                     }
                 }
 
-                output.AppendLine("}");
+                if (!isGlobalNamespace)
+                {
+                    output.AppendLine("}");
+                }
                 output.AppendLine();
             }
 
             string outputPath = Path.Combine(outputDir, "BNMResolves.hpp");
             File.WriteAllText(outputPath, output.ToString());
-            
+
             Console.WriteLine();
             Console.WriteLine($"C++ headers saved to: {outputPath}");
-            
+
             ValidateGeneratedCode(outputPath);
         }
         static void GenerateFolderStructure(List<Type> classes, IGrouping<string, Type>[] groupedClasses, string outputDir)
@@ -193,13 +222,22 @@ namespace BNMCppHeaderGenerator
             foreach (var namespaceGroup in groupedClasses)
             {
                 string namespaceName = namespaceGroup.Key;
-                string namespacePath = namespaceName.Replace(".", "/");
-                string namespaceDir = Path.Combine(outputDir, namespacePath);
+                string namespaceDir;
                 
+                if (namespaceName == "Global")
+                {
+                    namespaceDir = Path.Combine(outputDir, "Global");
+                }
+                else
+                {
+                    string namespacePath = namespaceName.Replace(".", "/");
+                    namespaceDir = Path.Combine(outputDir, namespacePath);
+                }
+
                 Directory.CreateDirectory(namespaceDir);
 
                 var sortedClasses = namespaceGroup.OrderBy(t => t.Name);
-                
+
                 foreach (var type in sortedClasses)
                 {
                     definedTypes.Add(CleanTypeName(type.Name));
@@ -209,12 +247,12 @@ namespace BNMCppHeaderGenerator
                 {
                     if (type.Namespace != null && (type.Namespace.StartsWith("BoingKit") || type.Namespace.StartsWith("CjLib") || type.Namespace.StartsWith("TMPro") || type.Namespace.StartsWith("GorillaNetworking") || type.Namespace.StartsWith("emotitron") || type.Namespace.StartsWith("Unity.Collections")))
                     {
-                        Console.WriteLine($"Skipping: {type.FullName} (removed)");
+                        Console.WriteLine($"Skipping: {type.FullName ?? type.Name} (removed)");
                         continue;
                     }
-                    
-                    Console.WriteLine($"Processing: {type.FullName}");
-                    
+
+                    Console.WriteLine($"Processing: {type.FullName ?? type.Name}");
+
                     var classContent = new StringBuilder();
                     classContent.AppendLine("#pragma once");
                     classContent.AppendLine("using namespace BNM;");
@@ -223,24 +261,32 @@ namespace BNMCppHeaderGenerator
                     classContent.AppendLine("using namespace BNM::Structures::Unity;");
                     classContent.AppendLine("using namespace BNM::UnityEngine;");
                     classContent.AppendLine("#define O(str) BNM_OBFUSCATE(str)");
+                    classContent.AppendLine("#include \"BNMResolve.hpp\"");
                     classContent.AppendLine();
 
-                    classContent.AppendLine($"namespace {namespaceName.Replace(".", "::")} {{");
-                    classContent.AppendLine();
+                    bool isGlobalNamespace = namespaceName == "Global";
+                    
+                    if (!isGlobalNamespace)
+                    {
+                        classContent.AppendLine($"namespace {namespaceName.Replace(".", "::")} {{");
+                        classContent.AppendLine();
+                    }
 
                     var otherTypesInNamespace = sortedClasses.Where(t => t != type).ToList();
                     if (otherTypesInNamespace.Any())
                     {
-                        classContent.AppendLine("    // Forward declarations for other types in this namespace");
+                        string prefix = isGlobalNamespace ? "" : "    ";
+                        classContent.AppendLine($"{prefix}// Forward declarations for other types in this namespace");
                         foreach (var otherType in otherTypesInNamespace)
                         {
                             if (otherType.IsEnum)
                             {
-                                classContent.AppendLine($"    enum class {CleanTypeName(otherType.Name)};");
+                                string underlyingType = GetEnumUnderlyingType(otherType);
+                                classContent.AppendLine($"{prefix}enum class {FormatInvalidName(CleanTypeName(otherType.Name))} : {underlyingType};");
                             }
                             else
                             {
-                                classContent.AppendLine($"    struct {CleanTypeName(otherType.Name)};");
+                                classContent.AppendLine($"{prefix}struct {FormatInvalidName(CleanTypeName(otherType.Name))};");
                             }
                         }
                         classContent.AppendLine();
@@ -248,16 +294,19 @@ namespace BNMCppHeaderGenerator
 
                     if (type.IsEnum)
                     {
-                        GenerateCppEnum(type, classContent);
+                        GenerateCppEnum(type, classContent, isGlobalNamespace);
                     }
                     else
                     {
-                        GenerateCppClass(type, classContent);
+                        GenerateCppClass(type, classContent, isGlobalNamespace);
                     }
 
-                    classContent.AppendLine("}");
+                    if (!isGlobalNamespace)
+                    {
+                        classContent.AppendLine("}");
+                    }
 
-                    string className = CleanTypeName(type.Name);
+                    string className = FormatInvalidName(CleanTypeName(type.Name));
                     string classFilePath = Path.Combine(namespaceDir, $"{className}.hpp");
                     File.WriteAllText(classFilePath, classContent.ToString());
                 }
@@ -265,96 +314,110 @@ namespace BNMCppHeaderGenerator
 
             Console.WriteLine();
             Console.WriteLine($"C++ headers saved to: {outputDir}/");
-            
+
             ValidateGeneratedCode(outputDir);
         }
-        static void GenerateCppClass(Type type, StringBuilder output)
+        static void GenerateCppClass(Type type, StringBuilder output, bool isGlobalNamespace = false)
         {
             try
             {
                 string baseClass = GetBaseClass(type, type);
-                string className = CleanTypeName(type.Name);
+                string className = FormatInvalidName(CleanTypeName(type.Name));
+                string indent = isGlobalNamespace ? "" : "    ";
 
                 if (baseClass.Contains("__REMOVE__"))
                 {
-                    output.AppendLine($"    // REMOVED: Class '{className}' inherits from removed base class");
+                    output.AppendLine($"{indent}// REMOVED: Class '{className}' inherits from removed base class");
                     output.AppendLine();
                     return;
                 }
 
                 if (baseClass.Contains("__SELF_REF__"))
                 {
-                    output.AppendLine($"    // REMOVED: Class '{className}' inherits from its own class type");
-                    output.AppendLine($"    struct {className} : Behaviour {{");
+                    output.AppendLine($"{indent}// REMOVED: Class '{className}' inherits from its own class type");
+                    output.AppendLine($"{indent}struct {className} : Behaviour {{");
                 }
                 else if (type.BaseType != null && type.BaseType.IsClass && type.BaseType != typeof(string) && type.BaseType.Namespace != null && !type.BaseType.Namespace.StartsWith("System") && !type.BaseType.Namespace.StartsWith("UnityEngine") && type.BaseType != type)
                 {
-                    output.AppendLine($"    // NOTE: Class '{className}' inherits from other class type '{CleanTypeName(type.BaseType.Name)}'");
-                    output.AppendLine($"    struct {className}{baseClass} {{");
+                    output.AppendLine($"{indent}// NOTE: Class '{className}' inherits from other class type '{CleanTypeName(type.BaseType.Name)}'");
+                    output.AppendLine($"{indent}struct {className}{baseClass} {{");
                 }
                 else if (!string.IsNullOrEmpty(baseClass))
                 {
-                    output.AppendLine($"    struct {className}{baseClass} {{");
+                    output.AppendLine($"{indent}struct {className}{baseClass} {{");
                 }
                 else
                 {
-                    output.AppendLine($"    struct {className} : Behaviour {{");
+                    output.AppendLine($"{indent}struct {className} : Behaviour {{");
                 }
-                output.AppendLine("    public:");
+                output.AppendLine($"{indent}public:");
 
                 var generatedNames = new HashSet<string>();
 
-                output.AppendLine("        static Class GetClass() {");
-                output.AppendLine($"            const char* className = \"{type.Name}\";");
-                output.AppendLine($"            static BNM::Class clahh = Class(O(\"{type.Namespace}\"), O(className), Image(O(\"Assembly-CSharp.dll\")));");
-                output.AppendLine("            return clahh;");
-                output.AppendLine("        }");
+                output.AppendLine($"{indent}    static Class GetClass() {{");
+                output.AppendLine($"{indent}        const char* className = \"{type.Name}\";");
+                
+                string namespaceStr = type.Namespace ?? "";
+                output.AppendLine($"{indent}        static BNM::Class clahh = Class(O(\"{namespaceStr}\"), O(className), Image(O(\"Assembly-CSharp.dll\")));");
+                output.AppendLine($"{indent}        return clahh;");
+                output.AppendLine($"{indent}    }}");
                 output.AppendLine();
 
-                output.AppendLine("        static MonoType* GetType() {");
-                output.AppendLine("            return GetClass().GetMonoType();");
-                output.AppendLine("        }");
+                output.AppendLine($"{indent}    static MonoType* GetType() {{");
+                output.AppendLine($"{indent}        return GetClass().GetMonoType();");
+                output.AppendLine($"{indent}    }}");
                 output.AppendLine();
+
+                generatedNames.Add("GetClass");
+                generatedNames.Add("GetType");
+                generatedNames.Add("ToString");
+                generatedNames.Add("Equals");
+                generatedNames.Add("GetHashCode");
+                generatedNames.Add("MemberwiseClone");
+                generatedNames.Add("Finalize");
 
                 BindingFlags fieldFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
                 var fields = type.GetFields(fieldFlags).Where(f => !f.IsLiteral && !f.Name.Contains("<")).ToArray();
 
-                GenerateSingletonMethods(type, output, generatedNames);
+                GenerateSingletonMethods(type, output, generatedNames, indent);
 
                 foreach (var field in fields.OrderBy(f => f.Name))
                 {
-                    string getterName = $"Get{ToPascalCase(field.Name)}";
+                    string getterName = $"Get{ToPascalCase(FormatInvalidName(field.Name))}";
                     if (!generatedNames.Add(getterName)) continue;
-                    GenerateFieldGetter(field, output, type);
+                    GenerateFieldGetter(field, output, type, indent);
                 }
 
                 foreach (var field in fields.OrderBy(f => f.Name))
                 {
-                    string setterName = $"Set{ToPascalCase(field.Name)}";
+                    string setterName = $"Set{ToPascalCase(FormatInvalidName(field.Name))}";
                     if (!generatedNames.Add(setterName)) continue;
-                    GenerateFieldSetter(field, output, type);
+                    GenerateFieldSetter(field, output, type, indent);
                 }
 
-                GeneratePropertyMethods(type, output, generatedNames);
-                GenerateMethodDeclarations(type, output, generatedNames);
+                GeneratePropertyMethods(type, output, generatedNames, indent);
+                GenerateMethodDeclarations(type, output, generatedNames, indent);
 
-                output.AppendLine("    };\n");
+                output.AppendLine($"{indent}}};");
+                output.AppendLine();
             }
             catch (Exception ex)
             {
-                output.AppendLine($"    // Error generating class {type.Name}: {ex.Message}");
+                string indent = isGlobalNamespace ? "" : "    ";
+                output.AppendLine($"{indent}// Error generating class {type.Name}: {ex.Message}");
                 output.AppendLine();
             }
         }
-        static void GenerateCppEnum(Type type, StringBuilder output)
+        static void GenerateCppEnum(Type type, StringBuilder output, bool isGlobalNamespace = false)
         {
             try
             {
-                string enumName = CleanTypeName(type.Name);
+                string enumName = FormatInvalidName(CleanTypeName(type.Name));
                 Type underlyingType = Enum.GetUnderlyingType(type);
                 string cppUnderlyingType = GetCppType(underlyingType);
+                string indent = isGlobalNamespace ? "" : "    ";
 
-                output.AppendLine($"    enum class {enumName} : {cppUnderlyingType} {{");
+                output.AppendLine($"{indent}enum class {enumName} : {cppUnderlyingType} {{");
 
                 var enumValues = Enum.GetValues(type);
                 var enumNames = Enum.GetNames(type);
@@ -364,7 +427,7 @@ namespace BNMCppHeaderGenerator
                 {
                     string valueName = enumNames[i];
                     object value = enumValues.GetValue(i);
-                    
+
                     string uniqueValueName = valueName;
                     int suffix = 1;
                     while (usedNames.Contains(uniqueValueName))
@@ -373,7 +436,7 @@ namespace BNMCppHeaderGenerator
                         suffix++;
                     }
                     usedNames.Add(uniqueValueName);
-                    
+
                     string valueString;
                     if (underlyingType == typeof(int))
                     {
@@ -411,23 +474,25 @@ namespace BNMCppHeaderGenerator
                     {
                         valueString = value.ToString();
                     }
-                    
-                    if (uniqueValueName.ToLower() == "delete")
+
+                    string formattedValueName = FormatInvalidName(uniqueValueName);
+                    if (formattedValueName.ToLower() == "delete")
                     {
-                        output.AppendLine($"        // {uniqueValueName} = {valueString}, // removed \"delete\" bc it gives error");
+                        output.AppendLine($"{indent}    // {formattedValueName} = {valueString}, // removed \"delete\" bc it gives error");
                     }
                     else
                     {
-                        output.AppendLine($"        {uniqueValueName} = {valueString},");
+                        output.AppendLine($"{indent}    {formattedValueName} = {valueString},");
                     }
                 }
 
-                output.AppendLine("    };");
+                output.AppendLine($"{indent}}};");
                 output.AppendLine();
             }
             catch (Exception ex)
             {
-                output.AppendLine($"    // Error generating enum {type.Name}: {ex.Message}");
+                string indent = isGlobalNamespace ? "" : "    ";
+                output.AppendLine($"{indent}// Error generating enum {type.Name}: {ex.Message}");
                 output.AppendLine();
             }
         }
@@ -444,26 +509,26 @@ namespace BNMCppHeaderGenerator
             if (type.BaseType == null || type.BaseType == typeof(object)) { return ""; }
 
             string baseTypeName = CleanTypeName(type.BaseType.Name);
-            
+
             if (type.BaseType == type)
             {
                 return $" : __SELF_REF__{baseTypeName}";
             }
-            
+
             string[] allowedBaseClasses = {
                 "MonoBehaviour", "Behaviour", "Component", "Object", "ScriptableObject", "BNM::UnityEngine::MonoBehaviour"
             };
-            
+
             if (!allowedBaseClasses.Contains(baseTypeName))
             {
                 return $" : __REMOVE__{baseTypeName}";
             }
-            
+
             if (type.BaseType.Name.Contains("`"))
             {
                 return $" : __REMOVE__{baseTypeName}";
             }
-            
+
             switch (baseTypeName)
             {
                 case "MonoBehaviour":
@@ -480,7 +545,7 @@ namespace BNMCppHeaderGenerator
                     return $" : __REMOVE__{baseTypeName}";
             }
         }
-        static void GenerateSingletonMethods(Type type, StringBuilder output, HashSet<string> generatedNames)
+        static void GenerateSingletonMethods(Type type, StringBuilder output, HashSet<string> generatedNames, string indent)
         {
             try
             {
@@ -491,10 +556,10 @@ namespace BNMCppHeaderGenerator
                 {
                     string methodName = "get_Instance";
                     if (!generatedNames.Add(methodName)) return;
-                    output.AppendLine($"        static {CleanTypeName(type.Name)}* {methodName}() {{");
-                    output.AppendLine($"            static Method<{CleanTypeName(type.Name)}*> method = GetClass().GetMethod(O(\"get_Instance\"));");
-                    output.AppendLine("            return method();");
-                    output.AppendLine("        }");
+                    output.AppendLine($"{indent}    static {FormatInvalidName(CleanTypeName(type.Name))}* {methodName}() {{");
+                    output.AppendLine($"{indent}        static Method<{FormatInvalidName(CleanTypeName(type.Name))}*> method = GetClass().GetMethod(O(\"get_Instance\"));");
+                    output.AppendLine($"{indent}        return method();");
+                    output.AppendLine($"{indent}    }}");
                     output.AppendLine();
                 }
 
@@ -502,10 +567,10 @@ namespace BNMCppHeaderGenerator
                 {
                     string methodName = "GetInstance";
                     if (!generatedNames.Add(methodName)) return;
-                    output.AppendLine($"        static {CleanTypeName(type.Name)}* {methodName}() {{");
-                    output.AppendLine($"            static Field<{CleanTypeName(type.Name)}*> field = GetClass().GetField(O(\"_instance\"));");
-                    output.AppendLine("            return field();");
-                    output.AppendLine("        }");
+                    output.AppendLine($"{indent}    static {FormatInvalidName(CleanTypeName(type.Name))}* {methodName}() {{");
+                    output.AppendLine($"{indent}        static Field<{FormatInvalidName(CleanTypeName(type.Name))}*> field = GetClass().GetField(O(\"_instance\"));");
+                    output.AppendLine($"{indent}        return field();");
+                    output.AppendLine($"{indent}    }}");
                     output.AppendLine();
                 }
             }
@@ -513,55 +578,55 @@ namespace BNMCppHeaderGenerator
             {
             }
         }
-        static void GenerateFieldGetter(FieldInfo field, StringBuilder output, Type currentClass = null)
+        static void GenerateFieldGetter(FieldInfo field, StringBuilder output, Type currentClass = null, string indent = "    ")
         {
             try
             {
                 string cppType = GetCppType(field.FieldType, currentClass);
                 if (cppType.Contains("__REMOVE__"))
                 {
-                    output.AppendLine($"        // {field.FieldType.Name} is not setup, removed");
+                    output.AppendLine($"{indent}    // {field.FieldType.Name} is not setup, removed");
                     output.AppendLine();
                     return;
                 }
-                
+
                 if (cppType.Contains("__SELF_REF__"))
                 {
-                    output.AppendLine($"        // REMOVED: Field '{field.Name}' uses its own class type {CleanTypeName(field.FieldType.Name)}");
+                    output.AppendLine($"{indent}    // REMOVED: Field '{field.Name}' uses its own class type {CleanTypeName(field.FieldType.Name)}");
                     output.AppendLine();
                     return;
                 }
-                
+
                 if (currentClass != null && field.FieldType.IsClass && field.FieldType != typeof(string) && field.FieldType.Namespace != null && !field.FieldType.Namespace.StartsWith("System") && !field.FieldType.Namespace.StartsWith("UnityEngine") && field.FieldType != currentClass)
                 {
-                    output.AppendLine($"        // REMOVED: Field '{field.Name}' uses other class type {CleanTypeName(field.FieldType.Name)}");
+                    output.AppendLine($"{indent}    // REMOVED: Field '{field.Name}' uses other class type {CleanTypeName(field.FieldType.Name)}");
                     output.AppendLine();
                     return;
                 }
-                
-                string methodName = $"Get{ToPascalCase(field.Name)}";
-                string fieldName = field.Name;
-                string fieldVarName = ToCamelCase(field.Name);
 
-                output.AppendLine($"        {cppType} {methodName}() {{");
-                output.AppendLine($"            static Field<{cppType}> {fieldVarName} = GetClass().GetField(O(\"{fieldName}\"));");
+                string methodName = $"Get{ToPascalCase(FormatInvalidName(field.Name))}";
+                string fieldName = field.Name;
+                string fieldVarName = ToCamelCase(FormatInvalidName(field.Name));
+
+                output.AppendLine($"{indent}    {cppType} {methodName}() {{");
+                output.AppendLine($"{indent}        static Field<{cppType}> {fieldVarName} = GetClass().GetField(O(\"{fieldName}\"));");
 
                 if (!field.IsStatic)
                 {
-                    output.AppendLine($"            {fieldVarName}.SetInstance(this);");
+                    output.AppendLine($"{indent}        {fieldVarName}.SetInstance(this);");
                 }
 
-                output.AppendLine($"            return {fieldVarName}();");
-                output.AppendLine("        }");
+                output.AppendLine($"{indent}        return {fieldVarName}();");
+                output.AppendLine($"{indent}    }}");
                 output.AppendLine();
             }
             catch (Exception ex)
             {
-                output.AppendLine($"        // Error generating getter for {field.Name}: {ex.Message}");
+                output.AppendLine($"{indent}    // Error generating getter for {field.Name}: {ex.Message}");
                 output.AppendLine();
             }
         }
-        static void GenerateFieldSetter(FieldInfo field, StringBuilder output, Type currentClass = null)
+        static void GenerateFieldSetter(FieldInfo field, StringBuilder output, Type currentClass = null, string indent = "    ")
         {
             try
             {
@@ -570,48 +635,48 @@ namespace BNMCppHeaderGenerator
                 string cppType = GetCppType(field.FieldType, currentClass);
                 if (cppType.Contains("__REMOVE__"))
                 {
-                    output.AppendLine($"        // {field.FieldType.Name} is not setup, removed");
+                    output.AppendLine($"{indent}    // {field.FieldType.Name} is not setup, removed");
                     output.AppendLine();
                     return;
                 }
-                
+
                 if (cppType.Contains("__SELF_REF__"))
                 {
-                    output.AppendLine($"        // REMOVED: Field '{field.Name}' uses its own class type {CleanTypeName(field.FieldType.Name)}");
+                    output.AppendLine($"{indent}    // REMOVED: Field '{field.Name}' uses its own class type {CleanTypeName(field.FieldType.Name)}");
                     output.AppendLine();
                     return;
                 }
-                
-                if (currentClass != null && field.FieldType.IsClass && field.FieldType != typeof(string) && field.FieldType.Namespace != null && !field.FieldType.Namespace.StartsWith("System") &&  !field.FieldType.Namespace.StartsWith("UnityEngine") && field.FieldType != currentClass)
-                {
-                    output.AppendLine($"        // REMOVED: Field '{field.Name}' uses other class type {CleanTypeName(field.FieldType.Name)}");
-                    output.AppendLine();
-                    return;
-                }
-                
-                string methodName = $"Set{ToPascalCase(field.Name)}";
-                string fieldName = field.Name;
-                string fieldVarName = ToCamelCase(field.Name);
 
-                output.AppendLine($"        void {methodName}({cppType} value) {{");
-                output.AppendLine($"            static Field<{cppType}> {fieldVarName} = GetClass().GetField(O(\"{fieldName}\"));");
+                if (currentClass != null && field.FieldType.IsClass && field.FieldType != typeof(string) && field.FieldType.Namespace != null && !field.FieldType.Namespace.StartsWith("System") && !field.FieldType.Namespace.StartsWith("UnityEngine") && field.FieldType != currentClass)
+                {
+                    output.AppendLine($"{indent}    // REMOVED: Field '{field.Name}' uses other class type {CleanTypeName(field.FieldType.Name)}");
+                    output.AppendLine();
+                    return;
+                }
+
+                string methodName = $"Set{ToPascalCase(FormatInvalidName(field.Name))}";
+                string fieldName = field.Name;
+                string fieldVarName = ToCamelCase(FormatInvalidName(field.Name));
+
+                output.AppendLine($"{indent}    void {methodName}({cppType} value) {{");
+                output.AppendLine($"{indent}        static Field<{cppType}> {fieldVarName} = GetClass().GetField(O(\"{fieldName}\"));");
 
                 if (!field.IsStatic)
                 {
-                    output.AppendLine($"            {fieldVarName}.SetInstance(this);");
+                    output.AppendLine($"{indent}        {fieldVarName}.SetInstance(this);");
                 }
 
-                output.AppendLine($"            {fieldVarName} = value;");
-                output.AppendLine("        }");
+                output.AppendLine($"{indent}        {fieldVarName} = value;");
+                output.AppendLine($"{indent}    }}");
                 output.AppendLine();
             }
             catch (Exception ex)
             {
-                output.AppendLine($"        // Error generating setter for {field.Name}: {ex.Message}");
+                output.AppendLine($"{indent}    // Error generating setter for {field.Name}: {ex.Message}");
                 output.AppendLine();
             }
         }
-        static void GeneratePropertyMethods(Type type, StringBuilder output, HashSet<string> generatedNames)
+        static void GeneratePropertyMethods(Type type, StringBuilder output, HashSet<string> generatedNames, string indent = "    ")
         {
             try
             {
@@ -624,79 +689,79 @@ namespace BNMCppHeaderGenerator
                     {
                         if (property.Name.Contains("."))
                         {
-                            output.AppendLine($"        // REMOVED: Property '{property.Name}' contains dots (fully qualified type name)");
+                            output.AppendLine($"{indent}    // REMOVED: Property '{property.Name}' contains dots (fully qualified type name)");
                             output.AppendLine();
                             continue;
                         }
-                        
+
                         string cppType = GetCppType(property.PropertyType, type);
                         if (cppType.Contains("__REMOVE__"))
                         {
-                            output.AppendLine($"        // {property.PropertyType.Name} is not setup, removed");
+                            output.AppendLine($"{indent}    // {property.PropertyType.Name} is not setup, removed");
                             output.AppendLine();
                             continue;
                         }
-                        
+
                         if (cppType.Contains("__SELF_REF__"))
                         {
-                            output.AppendLine($"        // REMOVED: Property '{property.Name}' uses its own class type {CleanTypeName(property.PropertyType.Name)}");
+                            output.AppendLine($"{indent}    // REMOVED: Property '{property.Name}' uses its own class type {CleanTypeName(property.PropertyType.Name)}");
                             output.AppendLine();
                             continue;
                         }
-                        
-                        if (type != null && property.PropertyType.IsClass && property.PropertyType != typeof(string) && property.PropertyType.Namespace != null && !property.PropertyType.Namespace.StartsWith("System") &&  !property.PropertyType.Namespace.StartsWith("UnityEngine") && property.PropertyType != type)
+
+                        if (type != null && property.PropertyType.IsClass && property.PropertyType != typeof(string) && property.PropertyType.Namespace != null && !property.PropertyType.Namespace.StartsWith("System") && !property.PropertyType.Namespace.StartsWith("UnityEngine") && property.PropertyType != type)
                         {
-                            output.AppendLine($"        // REMOVED: Property '{property.Name}' uses other class type {CleanTypeName(property.PropertyType.Name)}");
+                            output.AppendLine($"{indent}    // REMOVED: Property '{property.Name}' uses other class type {CleanTypeName(property.PropertyType.Name)}");
                             output.AppendLine();
                             continue;
                         }
-                        
+
                         string propertyName = property.Name;
 
                         if (property.CanRead && property.GetMethod != null)
                         {
-                            string getterName = $"Get{ToPascalCase(propertyName)}";
+                            string getterName = $"Get{ToPascalCase(FormatInvalidName(propertyName))}";
                             if (!generatedNames.Add(getterName)) continue;
-                            output.AppendLine($"        {cppType} {getterName}() {{");
-                            output.AppendLine($"            static Method<{cppType}> method = GetClass().GetMethod(O(\"get_{propertyName}\"));");
+                            output.AppendLine($"{indent}    {cppType} {getterName}() {{");
+                            output.AppendLine($"{indent}        static Method<{cppType}> method = GetClass().GetMethod(O(\"get_{propertyName}\"));");
                             if (!property.GetMethod.IsStatic)
                             {
-                                output.AppendLine("            method.SetInstance(this);");
+                                output.AppendLine($"{indent}        method.SetInstance(this);");
                             }
-                            output.AppendLine("            return method();");
-                            output.AppendLine("        }");
+                            output.AppendLine($"{indent}        return method();");
+                            output.AppendLine($"{indent}    }}");
                             output.AppendLine();
                         }
 
                         if (property.CanWrite && property.SetMethod != null)
                         {
-                            string setterName = $"Set{ToPascalCase(propertyName)}";
+                            string setterName = $"Set{ToPascalCase(FormatInvalidName(propertyName))}";
                             if (!generatedNames.Add(setterName)) continue;
-                            output.AppendLine($"        void {setterName}({cppType} value) {{");
-                            output.AppendLine($"            static Method<void> method = GetClass().GetMethod(O(\"set_{propertyName}\"));");
+                            output.AppendLine($"{indent}    void {setterName}({cppType} value) {{");
+                            output.AppendLine($"{indent}        static Method<void> method = GetClass().GetMethod(O(\"set_{propertyName}\"));");
                             if (!property.SetMethod.IsStatic)
                             {
-                                output.AppendLine("            method.SetInstance(this);");
+                                output.AppendLine($"{indent}        method.SetInstance(this);");
                             }
-                            output.AppendLine("            method(value);");
-                            output.AppendLine("        }");
+                            output.AppendLine($"{indent}        method(value);");
+                            output.AppendLine($"{indent}    }}");
                             output.AppendLine();
                         }
                     }
                     catch (Exception ex)
                     {
-                        output.AppendLine($"        // Error generating property {property.Name}: {ex.Message}");
+                        output.AppendLine($"{indent}    // Error generating property {property.Name}: {ex.Message}");
                         output.AppendLine();
                     }
                 }
             }
             catch (Exception ex)
             {
-                output.AppendLine($"        // Error generating properties: {ex.Message}");
+                output.AppendLine($"{indent}    // Error generating properties: {ex.Message}");
                 output.AppendLine();
             }
         }
-        static void GenerateMethodDeclarations(Type type, StringBuilder output, HashSet<string> generatedNames)
+        static void GenerateMethodDeclarations(Type type, StringBuilder output, HashSet<string> generatedNames, string indent = "    ")
         {
             try
             {
@@ -709,35 +774,40 @@ namespace BNMCppHeaderGenerator
                     {
                         if (method.Name.Contains("."))
                         {
-                            output.AppendLine($"        // REMOVED: Method '{method.Name}' contains dots (fully qualified type name)");
+                            output.AppendLine($"{indent}    // REMOVED: Method '{method.Name}' contains dots (fully qualified type name)");
                             output.AppendLine();
                             continue;
                         }
-                        
+
                         string returnType = GetCppType(method.ReturnType, type);
                         if (returnType.Contains("__REMOVE__"))
                         {
-                            output.AppendLine($"        // {method.ReturnType.Name} is not setup, removed");
+                            output.AppendLine($"{indent}    // {method.ReturnType.Name} is not setup, removed");
                             output.AppendLine();
                             continue;
                         }
-                        
+
                         if (returnType.Contains("__SELF_REF__"))
                         {
-                            output.AppendLine($"        // REMOVED: Method '{method.Name}' return type uses its own class type {CleanTypeName(method.ReturnType.Name)}");
+                            output.AppendLine($"{indent}    // REMOVED: Method '{method.Name}' return type uses its own class type {CleanTypeName(method.ReturnType.Name)}");
                             output.AppendLine();
                             continue;
                         }
-                        
-                        if (type != null && method.ReturnType.IsClass && method.ReturnType != typeof(string) && method.ReturnType.Namespace != null && !method.ReturnType.Namespace.StartsWith("System") &&  !method.ReturnType.Namespace.StartsWith("UnityEngine") && method.ReturnType != type)
+
+                        if (type != null && method.ReturnType.IsClass && method.ReturnType != typeof(string) && method.ReturnType.Namespace != null && !method.ReturnType.Namespace.StartsWith("System") && !method.ReturnType.Namespace.StartsWith("UnityEngine") && method.ReturnType != type)
                         {
-                            output.AppendLine($"        // REMOVED: Method '{method.Name}' return type uses other class type {CleanTypeName(method.ReturnType.Name)}");
+                            output.AppendLine($"{indent}    // REMOVED: Method '{method.Name}' return type uses other class type {CleanTypeName(method.ReturnType.Name)}");
                             output.AppendLine();
                             continue;
                         }
-                        
-                        string methodName = method.Name;
-                        if (!generatedNames.Add(methodName)) continue;
+
+                        string methodName = FormatInvalidName(method.Name);
+                        if (!generatedNames.Add(methodName)) 
+                        {
+                            output.AppendLine($"{indent}    // SKIPPED: Method '{method.Name}' conflicts with existing method '{methodName}'");
+                            output.AppendLine();
+                            continue;
+                        }
                         var parameters = method.GetParameters();
 
                         var paramList = new List<string>();
@@ -757,63 +827,74 @@ namespace BNMCppHeaderGenerator
                             }
                             if (cppType.Contains("__REMOVE__"))
                             {
-                                output.AppendLine($"        // {paramType.Name} is not setup, removed");
+                                output.AppendLine($"{indent}    // {paramType.Name} is not setup, removed");
                                 output.AppendLine();
                                 skipMethod = true;
                                 break;
                             }
-                            
+
                             if (cppType.Contains("__SELF_REF__"))
                             {
-                                output.AppendLine($"        // REMOVED: Method '{method.Name}' parameter '{paramInfo.Name ?? $"param{i}"}' uses its own class type {CleanTypeName(paramType.Name)}");
+                                output.AppendLine($"{indent}    // REMOVED: Method '{method.Name}' parameter '{paramInfo.Name ?? $"param{i}"}' uses its own class type {CleanTypeName(paramType.Name)}");
                                 output.AppendLine();
                                 skipMethod = true;
                                 break;
                             }
-                            
+
                             if (type != null && paramType.IsClass && paramType != typeof(string) && paramType.Namespace != null && !paramType.Namespace.StartsWith("System") && !paramType.Namespace.StartsWith("UnityEngine") && paramType != type)
                             {
-                                output.AppendLine($"        // REMOVED: Method '{method.Name}' parameter '{paramInfo.Name ?? $"param{i}"}' uses other class type {CleanTypeName(paramType.Name)}");
+                                output.AppendLine($"{indent}    // REMOVED: Method '{method.Name}' parameter '{paramInfo.Name ?? $"param{i}"}' uses other class type {CleanTypeName(paramType.Name)}");
                                 output.AppendLine();
                                 skipMethod = true;
                                 break;
                             }
-                            
+
                             string paramName = paramInfo.Name ?? $"param{i}";
                             paramList.Add($"{cppType} {paramName}");
                         }
                         if (skipMethod) continue;
 
+                        var paramNames = parameters.Select(p => p.Name ?? $"param{Array.IndexOf(parameters, p)}").ToArray();
+                        var validParamNames = MakeValidParams(paramNames);
+                        var formattedParamList = new List<string>();
+                        for (int i = 0; i < paramList.Count; i++)
+                        {
+                            var paramType = paramList[i].Split(' ')[0];
+                            var formattedParamName = FormatInvalidName(validParamNames[i]);
+                            formattedParamList.Add($"{paramType} {formattedParamName}");
+                        }
+                        paramList = formattedParamList;
+
                         string paramString = string.Join(", ", paramList);
-                        string methodSignature = $"        {returnType} {methodName}({paramString}) {{";
+                        string methodSignature = $"{indent}    {returnType} {methodName}({paramString}) {{";
                         output.AppendLine(methodSignature);
-                        output.AppendLine($"            static Method<{returnType}> method = GetClass().GetMethod(O(\"{methodName}\"));");
+                        output.AppendLine($"{indent}        static Method<{returnType}> method = GetClass().GetMethod(O(\"{method.Name}\"));");
                         if (!method.IsStatic)
                         {
-                            output.AppendLine("            method.SetInstance(this);");
+                            output.AppendLine($"{indent}        method.SetInstance(this);");
                         }
                         if (parameters.Length == 0)
                         {
-                            output.AppendLine("            return method();");
+                            output.AppendLine($"{indent}        return method();");
                         }
                         else
                         {
-                            var paramNames = parameters.Select(p => p.Name ?? $"param{Array.IndexOf(parameters, p)}").ToArray();
-                            output.AppendLine($"            return method({string.Join(", ", paramNames)});");
+                                                    var formattedParamNames = validParamNames.Select(p => FormatInvalidName(p)).ToArray();
+                        output.AppendLine($"{indent}        return method({string.Join(", ", formattedParamNames)});");
                         }
-                        output.AppendLine("        }");
+                        output.AppendLine($"{indent}    }}");
                         output.AppendLine();
                     }
                     catch (Exception ex)
                     {
-                        output.AppendLine($"        // Error generating method {method.Name}: {ex.Message}");
+                        output.AppendLine($"{indent}    // Error generating method {method.Name}: {ex.Message}");
                         output.AppendLine();
                     }
                 }
             }
             catch (Exception ex)
             {
-                output.AppendLine($"        // Error generating methods: {ex.Message}");
+                output.AppendLine($"{indent}    // Error generating methods: {ex.Message}");
                 output.AppendLine();
             }
         }
@@ -825,7 +906,7 @@ namespace BNMCppHeaderGenerator
                 {
                     return $"__REMOVE__{type.Name}";
                 }
-                
+
                 if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
                 {
                     type = Nullable.GetUnderlyingType(type);
@@ -845,7 +926,7 @@ namespace BNMCppHeaderGenerator
                 {
                     Type elementType = type.GetElementType();
                     string elementCppType = GetCppType(elementType, currentClass);
-                    return $"Mono::Array<{elementCppType}>*";
+                    return $"BNM::Structures::Mono::Array<{elementCppType}>*";
                 }
 
                 if (type.IsGenericType)
@@ -858,8 +939,15 @@ namespace BNMCppHeaderGenerator
                         switch (genericTypeName)
                         {
                             case "List":
-                                return $"Mono::List<{GetCppType(genericArgs[0], currentClass)}>*";
-                                // do more stuff
+                                if (genericArgs.Length > 0)
+                                {
+                                    string elementType = GetCppType(genericArgs[0], currentClass);
+                                    if (!elementType.Contains("__REMOVE__") && !elementType.Contains("__SELF_REF__"))
+                                    {
+                                        return $"BNM::Structures::Mono::List<{elementType}>*";
+                                    }
+                                }
+                                return "void*";
                             default:
                                 return "void*";
                         }
@@ -882,7 +970,7 @@ namespace BNMCppHeaderGenerator
                     {
                         return $"__REMOVE__{CleanTypeName(type.Name)}";
                     }
-                    
+
                     if (type.Namespace != null && !type.Namespace.StartsWith("System"))
                     {
                         if (definedTypes.Contains(CleanTypeName(type.Name)))
@@ -895,6 +983,40 @@ namespace BNMCppHeaderGenerator
                         }
                     }
                     return CleanTypeName(type.Name);
+                }
+
+                switch (type.FullName)
+                {
+                    case "System.Void": return "void";
+                    case "System.Int8": return "int8_t";
+                    case "System.UInt8": return "uint8_t";
+                    case "System.Int16": return "short";
+                    case "System.Int32": return "int";
+                    case "System.Int64": return "int64_t";
+                    case "System.Single": return "float";
+                    case "System.Double": return "double";
+                    case "System.Boolean": return "bool";
+                    case "System.Char": return "char";
+                    case "System.UInt16": return "BNM::Types::ushort";
+                    case "System.UInt32": return "BNM::Types::uint";
+                    case "System.UInt64": return "BNM::Types::ulong";
+                    case "System.Decimal": return "BNM::Types::decimal";
+                    case "System.Byte": return "BNM::Types::byte";
+                    case "System.SByte": return "BNM::Types::sbyte";
+                    case "System.String": return "BNM::Structures::Mono::String*";
+                    case "System.Type": return "BNM::MonoType*";
+                    case "System.IntPtr": return "BNM::Types::nuint";
+                    case "UnityEngine.Object": return "BNM::UnityEngine::Object*";
+                    case "UnityEngine.MonoBehaviour": return "BNM::UnityEngine::MonoBehaviour*";
+                    case "UnityEngine.Vector2": return "BNM::Structures::Unity::Vector2";
+                    case "UnityEngine.Vector3": return "BNM::Structures::Unity::Vector3";
+                    case "UnityEngine.Vector4": return "BNM::Structures::Unity::Vector4";
+                    case "UnityEngine.Quaternion": return "BNM::Structures::Unity::Quaternion";
+                    case "UnityEngine.Rect": return "BNM::Structures::Unity::Rect";
+                    case "UnityEngine.Color": return "BNM::Structures::Unity::Color";
+                    case "UnityEngine.Color32": return "BNM::Structures::Unity::Color32";
+                    case "UnityEngine.Ray": return "BNM::Structures::Unity::Ray";
+                    case "UnityEngine.RaycastHit": return "BNM::Structures::Unity::RaycastHit";
                 }
 
                 switch (CleanTypeName(type.Name))
@@ -936,11 +1058,6 @@ namespace BNMCppHeaderGenerator
                     case "MeshRenderer": return "MeshRenderer*";
                     case "Renderer": return "Renderer*";
                     case "ParticleSystem": return "ParticleSystem*";
-                        /*
-                    case "GTZone": return "__REMOVE__GTZone";
-                    case "UnityLayer": return "__REMOVE__UnityLayer";
-                    case "WearablePackedStateSlots": return "__REMOVE__WearablePackedStateSlots";
-                        */
                     default:
                         return $"__REMOVE__{CleanTypeName(type.Name)}";
                 }
@@ -981,15 +1098,103 @@ namespace BNMCppHeaderGenerator
 
             return pascalCase;
         }
+        static bool StartsWithNumber(string str)
+        {
+            if (string.IsNullOrEmpty(str)) return false;
+            return char.IsDigit(str[0]);
+        }
+        static bool IsKeyword(string str)
+        {
+            string[] keywords = new string[] {
+                "", "alignas", "alignof", "and", "and_eq", "asm", "atomic_cancel", "atomic_commit", "atomic_noexcept",
+                "auto", "bitand", "bitor", "bool", "break", "case", "catch", "char", "char8_t", "char16_t", "char32_t",
+                "class", "compl", "concept", "const", "consteval", "constexpr", "constinit", "const_cast", "continue",
+                "contract_assert", "co_await", "co_return", "co_yield", "decltype", "default", "delete", "do", "double",
+                "dynamic_cast", "else", "enum", "explicit", "export", "extern", "false", "float", "for", "friend", "goto",
+                "if", "inline", "int", "long", "mutable", "namespace", "new", "noexcept", "not", "not_eq", "nullptr",
+                "operator", "or", "or_eq", "private", "protected", "public", "reflexpr", "register", "reinterpret_cast",
+                "requires", "return", "short", "signed", "sizeof", "static", "static_assert", "static_cast", "struct",
+                "switch", "synchronized", "template", "this", "thread_local", "throw", "true", "try", "typedef", "typeid",
+                "typename", "union", "unsigned", "using", "virtual", "void", "volatile", "wchar_t", "while", "xor", "xor_eq",
+
+                "abstract", "add", "as", "base", "byte", "checked", "decimal", "delegate", "event", "explicit", "extern",
+                "finally", "fixed", "foreach", "implicit", "in", "interface", "internal", "is", "lock", "null", "object",
+                "out", "override", "params", "readonly", "ref", "remove", "sbyte", "sealed", "stackalloc", "string",
+                "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using static", "value", "when", "where",
+                "yield",
+
+                "INT32_MAX", "INT32_MIN", "UINT32_MAX", "UINT16_MAX", "INT16_MAX", "UINT8_MAX", "INT8_MAX", "INT_MAX",
+                "Assert", "NULL", "O",
+            };
+            return keywords.Contains(str);
+        }
+        static string[] MakeValidParams(string[] paramNames)
+        {
+            var results = new List<string>();
+            var seen = new Dictionary<string, int>();
+
+            foreach (var param in paramNames)
+            {
+                string cparam = param;
+                if (seen.ContainsKey(param))
+                {
+                    seen[param]++;
+                    cparam = $"{param}_{seen[param]}";
+                }
+                else
+                {
+                    seen[param] = 0;
+                }
+
+                results.Add(cparam);
+            }
+
+            return results.ToArray();
+        }
+        static string FormatInvalidName(string className)
+        {
+            string str = className.Trim()
+                .Replace("<", "$")
+                .Replace(">", "$")
+                .Replace("|", "$")
+                .Replace("-", "$")
+                .Replace("`", "$")
+                .Replace("=", "$")
+                .Replace("@", "$")
+                .Trim();
+            
+            if (string.IsNullOrEmpty(str))
+                return "_";
+
+            if (StartsWithNumber(str))
+                str = "_" + str;
+
+            if (IsKeyword(str))
+                str = "$" + str;
+
+            return str;
+        }
+        static string GetEnumUnderlyingType(Type enumType)
+        {
+            try
+            {
+                Type underlyingType = Enum.GetUnderlyingType(enumType);
+                return GetCppType(underlyingType);
+            }
+            catch
+            {
+                return "int";
+            }
+        }
         static void ValidateGeneratedCode(string outputPath)
         {
             try
             {
                 Console.WriteLine("Validating generated C++ code...");
-                
+
                 var allErrors = new List<string>();
                 var allWarnings = new List<string>();
-                
+
                 var files = new List<string>();
                 if (Directory.Exists(outputPath))
                 {
@@ -1005,13 +1210,13 @@ namespace BNMCppHeaderGenerator
                     {
                         var fileErrors = new List<string>();
                         var fileWarnings = new List<string>();
-                        
+
                         var lines = File.ReadAllLines(file);
                         int lineNumber = 1;
                         int braceCount = 0;
                         int parenthesisCount = 0;
                         int bracketCount = 0;
-                        
+
                         foreach (var line in lines)
                         {
                             try
@@ -1028,32 +1233,32 @@ namespace BNMCppHeaderGenerator
                                         case ']': bracketCount--; break;
                                     }
                                 }
-                                
+
                                 if (line.Contains("struct") && line.Contains(":") && !line.Contains("{"))
                                 {
                                     fileWarnings.Add($"Line {lineNumber}: Struct declaration might be missing opening brace");
                                 }
-                                
+
                                 if (line.Contains("Method<") && !line.Contains("GetMethod"))
                                 {
                                     fileWarnings.Add($"Line {lineNumber}: Method template might be missing proper instantiation");
                                 }
-                                
+
                                 if (line.Contains("Field<") && !line.Contains("GetField"))
                                 {
                                     fileWarnings.Add($"Line {lineNumber}: Field template might be missing proper instantiation");
                                 }
-                                
+
                                 if (line.Contains("::") && line.Contains("*") && !line.Contains("BNM::") && !line.Contains("Mono::"))
                                 {
                                     fileWarnings.Add($"Line {lineNumber}: Potential namespace issue with pointer type");
                                 }
-                                
+
                                 if (line.Trim().EndsWith("()") && !line.Contains(";") && !line.Contains("{"))
                                 {
                                     fileWarnings.Add($"Line {lineNumber}: Method call might be missing semicolon");
                                 }
-                                
+
                                 lineNumber++;
                             }
                             catch (Exception ex)
@@ -1062,33 +1267,33 @@ namespace BNMCppHeaderGenerator
                                 lineNumber++;
                             }
                         }
-                        
+
                         if (braceCount != 0)
                         {
                             fileErrors.Add($"Unmatched braces: {braceCount} more {(braceCount > 0 ? "opening" : "closing")} braces");
                         }
-                        
+
                         if (parenthesisCount != 0)
                         {
                             fileErrors.Add($"Unmatched parentheses: {parenthesisCount} more {(parenthesisCount > 0 ? "opening" : "closing")} parentheses");
                         }
-                        
+
                         if (bracketCount != 0)
                         {
                             fileErrors.Add($"Unmatched brackets: {bracketCount} more {(bracketCount > 0 ? "opening" : "closing")} brackets");
                         }
-                        
+
                         var fileContent = File.ReadAllText(file);
                         if (!fileContent.Contains("#pragma once"))
                         {
                             fileWarnings.Add("Missing #pragma once directive");
                         }
-                                                
+
                         if (!fileContent.Contains("using namespace BNM"))
                         {
                             fileWarnings.Add("Missing BNM namespace usage");
                         }
-                        
+
                         if (fileErrors.Count > 0)
                         {
                             Console.WriteLine($"Found {fileErrors.Count} validation errors in {file}:");
@@ -1098,7 +1303,7 @@ namespace BNMCppHeaderGenerator
                             }
                             allErrors.AddRange(fileErrors.Select(e => $"{file}: {e}"));
                         }
-                        
+
                         if (fileWarnings.Count > 0)
                         {
                             Console.WriteLine($"Found {fileWarnings.Count} validation warnings in {file}:");
@@ -1118,7 +1323,7 @@ namespace BNMCppHeaderGenerator
                         allErrors.Add($"Error validating {file}: {ex.Message}");
                     }
                 }
-                
+
                 if (allErrors.Count > 0)
                 {
                     Console.WriteLine($"Found {allErrors.Count} validation errors across all files:");
@@ -1130,7 +1335,7 @@ namespace BNMCppHeaderGenerator
                 {
                     Console.WriteLine("No validation errors found");
                 }
-                
+
                 if (allWarnings.Count > 0)
                 {
                     Console.WriteLine($"Found {allWarnings.Count} validation warnings across all files:");
@@ -1142,7 +1347,7 @@ namespace BNMCppHeaderGenerator
                 {
                     Console.WriteLine("No validation warnings found");
                 }
-                
+
                 Console.WriteLine("C++ code validation completed.");
             }
             catch (Exception ex)
