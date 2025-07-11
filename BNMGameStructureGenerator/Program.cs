@@ -12,6 +12,15 @@ namespace BNMGameStructureGenerator
     {
         private static HashSet<string> definedTypes = new HashSet<string>();
 
+        private static readonly HashSet<string> ReservedTypeNames = new HashSet<string>
+        {
+            // BNMResolve
+            "RenderMode",
+
+            // BNM
+            "Method"
+        };
+
         static void Main(string[] args)
         {
             string dllPath = "./Files/Assembly-CSharp.dll";
@@ -77,13 +86,14 @@ namespace BNMGameStructureGenerator
                 var classes = loadedTypes.Where(t => t != null &&
                                                (t.IsClass || t.IsEnum) &&
                                                !t.IsAbstract &&
-                                               t.IsPublic &&
                                                !t.Name.Contains("<") &&
                                                !t.Name.StartsWith("_")).ToList();
 
-                Console.WriteLine($"Found {classes.Count} classes and enums to process...");
+                var safeClasses = classes.Where(t => SafeGetNamespace(t) != null).ToList();
+                var groupedClasses = safeClasses.GroupBy(t => SafeGetNamespace(t)).OrderBy(g => g.Key);
 
-                var groupedClasses = classes.GroupBy(t => t.Namespace ?? "Global").OrderBy(g => g.Key);
+
+                Console.WriteLine($"Found {classes.Count} classes and enums to process...");
 
                 if (singleFileMode)
                 {
@@ -124,6 +134,9 @@ namespace BNMGameStructureGenerator
                 definedTypes.Add(CleanTypeName(type.Name));
             }
 
+            HashSet<string> generatedEnums = new HashSet<string>();
+            HashSet<string> generatedTypes = new HashSet<string>();
+
             output.AppendLine("// Forward declarations");
             foreach (var namespaceGroup in groupedClasses)
             {
@@ -135,14 +148,21 @@ namespace BNMGameStructureGenerator
                     var sortedClasses = namespaceGroup.OrderBy(t => t.Name);
                     foreach (var type in sortedClasses)
                     {
+                        string typeName = CleanTypeName(type.Name);
+                        if (ReservedTypeNames.Contains(typeName)) { continue; }
+                        if (generatedTypes.Contains(typeName)) { continue; }
+                        generatedTypes.Add(typeName);
                         if (type.IsEnum)
                         {
+                            string enumName = FormatInvalidName(typeName);
+                            if (generatedEnums.Contains(enumName)) { continue; }
+                            generatedEnums.Add(enumName);
                             string underlyingType = GetEnumUnderlyingType(type);
-                            output.AppendLine($"enum class {FormatInvalidName(CleanTypeName(type.Name))} : {underlyingType};");
+                            output.AppendLine($"enum class {enumName} : {underlyingType};");
                         }
                         else
                         {
-                            output.AppendLine($"struct {FormatInvalidName(CleanTypeName(type.Name))};");
+                            output.AppendLine($"struct {FormatInvalidName(typeName)};");
                         }
                     }
                 }
@@ -152,20 +172,32 @@ namespace BNMGameStructureGenerator
                     var sortedClasses = namespaceGroup.OrderBy(t => t.Name);
                     foreach (var type in sortedClasses)
                     {
+                        string typeName = CleanTypeName(type.Name);
+                        if (ReservedTypeNames.Contains(typeName)) { continue; }
+                        if (generatedTypes.Contains(typeName)) { continue; }
+                        generatedTypes.Add(typeName);
                         if (type.IsEnum)
                         {
+                            string enumName = FormatInvalidName(typeName);
+                            if (generatedEnums.Contains(enumName)) { continue; }
+                            generatedEnums.Add(enumName);
                             string underlyingType = GetEnumUnderlyingType(type);
-                            output.AppendLine($"    enum class {FormatInvalidName(CleanTypeName(type.Name))} : {underlyingType};");
+                            output.AppendLine($"    enum class {enumName} : {underlyingType};");
                         }
                         else
                         {
-                            output.AppendLine($"    struct {FormatInvalidName(CleanTypeName(type.Name))};");
+                            output.AppendLine($"    struct {FormatInvalidName(typeName)};");
                         }
                     }
                     output.AppendLine("}");
                 }
                 output.AppendLine();
             }
+
+            generatedEnums.Clear();
+            generatedTypes.Clear();
+
+            var allWarnings = new List<string>();
 
             foreach (var namespaceGroup in groupedClasses)
             {
@@ -181,10 +213,17 @@ namespace BNMGameStructureGenerator
 
                 foreach (var type in sortedClasses)
                 {
+                    string typeName = CleanTypeName(type.Name);
+                    if (ReservedTypeNames.Contains(typeName)) { continue; }
+                    if (generatedTypes.Contains(typeName)) { continue; }
+                    generatedTypes.Add(typeName);
                     Console.WriteLine($"Processing: {type.FullName ?? type.Name}");
 
                     if (type.IsEnum)
                     {
+                        string enumName = FormatInvalidName(typeName);
+                        if (generatedEnums.Contains(enumName)) { continue; }
+                        generatedEnums.Add(enumName);
                         GenerateCppEnum(type, output, isGlobalNamespace);
                     }
                     else
@@ -203,6 +242,13 @@ namespace BNMGameStructureGenerator
             string outputPath = Path.Combine(outputDir, "BNMResolves.hpp");
             File.WriteAllText(outputPath, output.ToString());
 
+            if (allWarnings.Count > 0)
+            {
+                string warnPath = Path.Combine(outputDir, "GenerationWarnings.txt");
+                File.WriteAllLines(warnPath, allWarnings);
+                Console.WriteLine($"All warnings saved to: {warnPath}");
+            }
+
             Console.WriteLine();
             Console.WriteLine($"C++ headers saved to: {outputPath}");
 
@@ -210,6 +256,8 @@ namespace BNMGameStructureGenerator
         }
         static void GenerateFolderStructure(List<Type> classes, IGrouping<string, Type>[] groupedClasses, string outputDir)
         {
+            HashSet<string> generatedTypes = new HashSet<string>();
+            var allWarnings = new List<string>();
             foreach (var namespaceGroup in groupedClasses)
             {
                 string namespaceName = namespaceGroup.Key;
@@ -231,11 +279,20 @@ namespace BNMGameStructureGenerator
 
                 foreach (var type in sortedClasses)
                 {
-                    definedTypes.Add(CleanTypeName(type.Name));
+                    string typeName = CleanTypeName(type.Name);
+                    if (ReservedTypeNames.Contains(typeName)) { continue; }
+                    if (generatedTypes.Contains(typeName)) { continue; }
+                    generatedTypes.Add(typeName);
                 }
+
+                HashSet<string> generatedEnums = new HashSet<string>();
 
                 foreach (var type in sortedClasses)
                 {
+                    string typeName = CleanTypeName(type.Name);
+                    if (ReservedTypeNames.Contains(typeName)) { continue; }
+                    if (generatedTypes.Contains(typeName)) { continue; }
+                    generatedTypes.Add(typeName);
                     Console.WriteLine($"Processing: {type.FullName ?? type.Name}");
 
                     var classContent = new StringBuilder();
@@ -264,14 +321,20 @@ namespace BNMGameStructureGenerator
                         classContent.AppendLine($"{prefix}// Forward declarations for other types in this namespace");
                         foreach (var otherType in otherTypesInNamespace)
                         {
+                            string otherTypeName = CleanTypeName(otherType.Name);
+                            if (ReservedTypeNames.Contains(otherTypeName)) { continue; }
+                            if (generatedEnums.Contains(otherTypeName)) { continue; }
                             if (otherType.IsEnum)
                             {
+                                string enumName = FormatInvalidName(otherTypeName);
+                                if (generatedEnums.Contains(enumName)) { continue; }
+                                generatedEnums.Add(enumName);
                                 string underlyingType = GetEnumUnderlyingType(otherType);
-                                classContent.AppendLine($"{prefix}enum class {FormatInvalidName(CleanTypeName(otherType.Name))} : {underlyingType};");
+                                classContent.AppendLine($"{prefix}enum class {enumName} : {underlyingType};");
                             }
                             else
                             {
-                                classContent.AppendLine($"{prefix}struct {FormatInvalidName(CleanTypeName(otherType.Name))};");
+                                classContent.AppendLine($"{prefix}struct {FormatInvalidName(otherTypeName)};");
                             }
                         }
                         classContent.AppendLine();
@@ -279,6 +342,9 @@ namespace BNMGameStructureGenerator
 
                     if (type.IsEnum)
                     {
+                        string enumName = FormatInvalidName(typeName);
+                        if (generatedEnums.Contains(enumName)) { continue; }
+                        generatedEnums.Add(enumName);
                         GenerateCppEnum(type, classContent, isGlobalNamespace);
                     }
                     else
@@ -291,19 +357,25 @@ namespace BNMGameStructureGenerator
                         classContent.AppendLine("}");
                     }
 
-                    string className = FormatInvalidName(CleanTypeName(type.Name));
+                    string className = FormatInvalidName(typeName);
                     string classFilePath = Path.Combine(namespaceDir, $"{className}.hpp");
                     File.WriteAllText(classFilePath, classContent.ToString());
                 }
             }
-
+            if (allWarnings.Count > 0)
+            {
+                string warnPath = Path.Combine(outputDir, "GenerationWarnings.txt");
+                File.WriteAllLines(warnPath, allWarnings);
+                Console.WriteLine($"All warnings saved to: {warnPath}");
+            }
             Console.WriteLine();
             Console.WriteLine($"C++ headers saved to: {outputDir}/");
 
             ValidateGeneratedCode(outputDir);
         }
-        static void GenerateCppClass(Type type, StringBuilder output, bool isGlobalNamespace = false)
+        static void GenerateCppClass(Type type, StringBuilder output, bool isGlobalNamespace = false, List<string> warnings = null)
         {
+            warnings = warnings ?? new List<string>();
             try
             {
                 string baseClass = GetBaseClass(type, type);
@@ -312,20 +384,26 @@ namespace BNMGameStructureGenerator
 
                 if (baseClass.Contains("__REMOVE__"))
                 {
-                    output.AppendLine($"{indent}// REMOVED: Class '{className}' inherits from removed base class");
+                    string warn = $"REMOVED: Class '{className}' inherits from removed base class";
+                    output.AppendLine($"{indent}// {warn}");
                     output.AppendLine();
+                    warnings.Add(warn);
                     return;
                 }
 
                 if (baseClass.Contains("__SELF_REF__"))
                 {
-                    output.AppendLine($"{indent}// REMOVED: Class '{className}' inherits from its own class type");
+                    string warn = $"REMOVED: Class '{className}' inherits from its own class type";
+                    output.AppendLine($"{indent}// {warn}");
                     output.AppendLine($"{indent}struct {className} : Behaviour {{");
+                    warnings.Add(warn);
                 }
                 else if (type.BaseType != null && type.BaseType.IsClass && type.BaseType != typeof(string) && type.BaseType.Namespace != null && !type.BaseType.Namespace.StartsWith("System") && !type.BaseType.Namespace.StartsWith("UnityEngine") && type.BaseType != type)
                 {
-                    output.AppendLine($"{indent}// NOTE: Class '{className}' inherits from other class type '{CleanTypeName(type.BaseType.Name)}'");
+                    string warn = $"NOTE: Class '{className}' inherits from other class type '{CleanTypeName(type.BaseType.Name)}'";
+                    output.AppendLine($"{indent}// {warn}");
                     output.AppendLine($"{indent}struct {className}{baseClass} {{");
+                    warnings.Add(warn);
                 }
                 else if (!string.IsNullOrEmpty(baseClass))
                 {
@@ -369,19 +447,19 @@ namespace BNMGameStructureGenerator
                 foreach (var field in fields.OrderBy(f => f.Name))
                 {
                     string getterName = $"Get{ToPascalCase(FormatInvalidName(field.Name))}";
-                    if (!generatedNames.Add(getterName)) continue;
-                    GenerateFieldGetter(field, output, type, indent);
+                    if (!generatedNames.Add(getterName)) { continue; }
+                    GenerateFieldGetter(field, output, type, indent, warnings);
                 }
 
                 foreach (var field in fields.OrderBy(f => f.Name))
                 {
                     string setterName = $"Set{ToPascalCase(FormatInvalidName(field.Name))}";
-                    if (!generatedNames.Add(setterName)) continue;
-                    GenerateFieldSetter(field, output, type, indent);
+                    if (!generatedNames.Add(setterName)) { continue; }
+                    GenerateFieldSetter(field, output, type, indent, warnings);
                 }
 
-                GeneratePropertyMethods(type, output, generatedNames, indent);
-                GenerateMethodDeclarations(type, output, generatedNames, indent);
+                GeneratePropertyMethods(type, output, generatedNames, indent, warnings);
+                GenerateMethodDeclarations(type, output, generatedNames, indent, warnings);
 
                 output.AppendLine($"{indent}}};");
                 output.AppendLine();
@@ -389,12 +467,15 @@ namespace BNMGameStructureGenerator
             catch (Exception ex)
             {
                 string indent = isGlobalNamespace ? "" : "    ";
-                output.AppendLine($"{indent}// Error generating class {type.Name}: {ex.Message}");
+                string warn = $"Error generating class {type.Name}: {ex.Message}";
+                output.AppendLine($"{indent}// {warn}");
                 output.AppendLine();
+                warnings.Add(warn);
             }
         }
-        static void GenerateCppEnum(Type type, StringBuilder output, bool isGlobalNamespace = false)
+        static void GenerateCppEnum(Type type, StringBuilder output, bool isGlobalNamespace = false, List<string> warnings = null)
         {
+            warnings = warnings ?? new List<string>();
             try
             {
                 string enumName = FormatInvalidName(CleanTypeName(type.Name));
@@ -463,7 +544,9 @@ namespace BNMGameStructureGenerator
                     string formattedValueName = FormatInvalidName(uniqueValueName);
                     if (formattedValueName.ToLower() == "delete")
                     {
-                        output.AppendLine($"{indent}    // {formattedValueName} = {valueString}, // removed \"delete\" bc it gives error");
+                        string warn = $"Enum value '{formattedValueName}' = {valueString} removed because it gives error";
+                        output.AppendLine($"{indent}    // {warn}");
+                        warnings.Add(warn);
                     }
                     else
                     {
@@ -477,8 +560,10 @@ namespace BNMGameStructureGenerator
             catch (Exception ex)
             {
                 string indent = isGlobalNamespace ? "" : "    ";
-                output.AppendLine($"{indent}// Error generating enum {type.Name}: {ex.Message}");
+                string warn = $"Error generating enum {type.Name}: {ex.Message}";
+                output.AppendLine($"{indent}// {warn}");
                 output.AppendLine();
+                warnings.Add(warn);
             }
         }
         static string CleanTypeName(string typeName)
@@ -563,29 +648,40 @@ namespace BNMGameStructureGenerator
             {
             }
         }
-        static void GenerateFieldGetter(FieldInfo field, StringBuilder output, Type currentClass = null, string indent = "    ")
+        static void GenerateFieldGetter(FieldInfo field, StringBuilder output, Type currentClass = null, string indent = "    ", List<string> warnings = null)
         {
+            warnings = warnings ?? new List<string>();
             try
             {
-                string cppType = GetCppType(field.FieldType, currentClass);
-                if (cppType.Contains("__REMOVE__"))
+                Type fieldType = field.FieldType;
+                if (fieldType.IsGenericType && fieldType.GetGenericTypeDefinition() == typeof(Nullable<>))
                 {
-                    output.AppendLine($"{indent}    // {field.FieldType.Name} is not setup, removed");
+                    fieldType = Nullable.GetUnderlyingType(fieldType);
+                }
+                if (ReservedTypeNames.Contains(CleanTypeName(fieldType.Name)))
+                {
+                    string warn = $"REMOVED: Field '{field.Name}' uses reserved type {fieldType.Name}";
+                    output.AppendLine($"{indent}    // {warn}");
                     output.AppendLine();
+                    warnings.Add(warn);
+                    return;
+                }
+                string cppType = GetCppType(fieldType, currentClass);
+                if (cppType.Contains("__REMOVE__") || cppType.Contains("__SELF_REF__"))
+                {
+                    string warn = $"{fieldType.Name} is not setup, removed";
+                    output.AppendLine($"{indent}    // {warn}");
+                    output.AppendLine();
+                    warnings.Add(warn);
                     return;
                 }
 
-                if (cppType.Contains("__SELF_REF__"))
+                if (field.FieldType.IsClass && field.FieldType != typeof(string) && field.FieldType.Namespace != null && !field.FieldType.Namespace.StartsWith("System") && !field.FieldType.Namespace.StartsWith("UnityEngine") && field.FieldType != currentClass)
                 {
-                    output.AppendLine($"{indent}    // REMOVED: Field '{field.Name}' uses its own class type {CleanTypeName(field.FieldType.Name)}");
+                    string warn = $"REMOVED: Field '{field.Name}' uses other class type {CleanTypeName(field.FieldType.Name)}";
+                    output.AppendLine($"{indent}    // {warn}");
                     output.AppendLine();
-                    return;
-                }
-
-                if (currentClass != null && field.FieldType.IsClass && field.FieldType != typeof(string) && field.FieldType.Namespace != null && !field.FieldType.Namespace.StartsWith("System") && !field.FieldType.Namespace.StartsWith("UnityEngine") && field.FieldType != currentClass)
-                {
-                    output.AppendLine($"{indent}    // REMOVED: Field '{field.Name}' uses other class type {CleanTypeName(field.FieldType.Name)}");
-                    output.AppendLine();
+                    warnings.Add(warn);
                     return;
                 }
 
@@ -593,8 +689,10 @@ namespace BNMGameStructureGenerator
                 string fieldName = field.Name;
                 string fieldVarName = ToCamelCase(FormatInvalidName(field.Name));
 
-                output.AppendLine($"{indent}    {cppType} {methodName}() {{");
-                output.AppendLine($"{indent}        static Field<{cppType}> {fieldVarName} = GetClass().GetField(O(\"{fieldName}\"));");
+                fieldVarName = FormatInvalidName(fieldVarName);
+
+                output.AppendLine($"{indent}    {GetCppType(fieldType, currentClass)} {methodName}() {{");
+                output.AppendLine($"{indent}        static Field<{GetCppType(fieldType, currentClass)}> {fieldVarName} = GetClass().GetField(O(\"{fieldName}\"));");
 
                 if (!field.IsStatic)
                 {
@@ -607,35 +705,47 @@ namespace BNMGameStructureGenerator
             }
             catch (Exception ex)
             {
-                output.AppendLine($"{indent}    // Error generating getter for {field.Name}: {ex.Message}");
+                string warn = $"Error generating getter for {field.Name}: {ex.Message}";
+                output.AppendLine($"{indent}    // {warn}");
                 output.AppendLine();
+                warnings.Add(warn);
             }
         }
-        static void GenerateFieldSetter(FieldInfo field, StringBuilder output, Type currentClass = null, string indent = "    ")
+        static void GenerateFieldSetter(FieldInfo field, StringBuilder output, Type currentClass = null, string indent = "    ", List<string> warnings = null)
         {
+            warnings = warnings ?? new List<string>();
             try
             {
                 if (field.IsInitOnly) { return; }
-
-                string cppType = GetCppType(field.FieldType, currentClass);
-                if (cppType.Contains("__REMOVE__"))
+                Type fieldType = field.FieldType;
+                if (fieldType.IsGenericType && fieldType.GetGenericTypeDefinition() == typeof(Nullable<>))
                 {
-                    output.AppendLine($"{indent}    // {field.FieldType.Name} is not setup, removed");
+                    fieldType = Nullable.GetUnderlyingType(fieldType);
+                }
+                if (ReservedTypeNames.Contains(CleanTypeName(fieldType.Name)))
+                {
+                    string warn = $"REMOVED: Field '{field.Name}' uses reserved type {fieldType.Name}";
+                    output.AppendLine($"{indent}    // {warn}");
                     output.AppendLine();
+                    warnings.Add(warn);
+                    return;
+                }
+                string cppType = GetCppType(fieldType, currentClass);
+                if (cppType.Contains("__REMOVE__") || cppType.Contains("__SELF_REF__"))
+                {
+                    string warn = $"{fieldType.Name} is not setup, removed";
+                    output.AppendLine($"{indent}    // {warn}");
+                    output.AppendLine();
+                    warnings.Add(warn);
                     return;
                 }
 
-                if (cppType.Contains("__SELF_REF__"))
+                if (field.FieldType.IsClass && field.FieldType != typeof(string) && field.FieldType.Namespace != null && !field.FieldType.Namespace.StartsWith("System") && !field.FieldType.Namespace.StartsWith("UnityEngine") && field.FieldType != currentClass)
                 {
-                    output.AppendLine($"{indent}    // REMOVED: Field '{field.Name}' uses its own class type {CleanTypeName(field.FieldType.Name)}");
+                    string warn = $"REMOVED: Field '{field.Name}' uses other class type {CleanTypeName(field.FieldType.Name)}";
+                    output.AppendLine($"{indent}    // {warn}");
                     output.AppendLine();
-                    return;
-                }
-
-                if (currentClass != null && field.FieldType.IsClass && field.FieldType != typeof(string) && field.FieldType.Namespace != null && !field.FieldType.Namespace.StartsWith("System") && !field.FieldType.Namespace.StartsWith("UnityEngine") && field.FieldType != currentClass)
-                {
-                    output.AppendLine($"{indent}    // REMOVED: Field '{field.Name}' uses other class type {CleanTypeName(field.FieldType.Name)}");
-                    output.AppendLine();
+                    warnings.Add(warn);
                     return;
                 }
 
@@ -643,8 +753,10 @@ namespace BNMGameStructureGenerator
                 string fieldName = field.Name;
                 string fieldVarName = ToCamelCase(FormatInvalidName(field.Name));
 
-                output.AppendLine($"{indent}    void {methodName}({cppType} value) {{");
-                output.AppendLine($"{indent}        static Field<{cppType}> {fieldVarName} = GetClass().GetField(O(\"{fieldName}\"));");
+                fieldVarName = FormatInvalidName(fieldVarName);
+
+                output.AppendLine($"{indent}    void {methodName}({GetCppType(fieldType, currentClass)} value) {{");
+                output.AppendLine($"{indent}        static Field<{GetCppType(fieldType, currentClass)}> {fieldVarName} = GetClass().GetField(O(\"{fieldName}\"));");
 
                 if (!field.IsStatic)
                 {
@@ -657,12 +769,15 @@ namespace BNMGameStructureGenerator
             }
             catch (Exception ex)
             {
-                output.AppendLine($"{indent}    // Error generating setter for {field.Name}: {ex.Message}");
+                string warn = $"Error generating setter for {field.Name}: {ex.Message}";
+                output.AppendLine($"{indent}    // {warn}");
                 output.AppendLine();
+                warnings.Add(warn);
             }
         }
-        static void GeneratePropertyMethods(Type type, StringBuilder output, HashSet<string> generatedNames, string indent = "    ")
+        static void GeneratePropertyMethods(Type type, StringBuilder output, HashSet<string> generatedNames, string indent = "    ", List<string> warnings = null)
         {
+            warnings = warnings ?? new List<string>();
             try
             {
                 BindingFlags propertyFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
@@ -672,32 +787,48 @@ namespace BNMGameStructureGenerator
                 {
                     try
                     {
-                        if (property.Name.Contains("."))
+                        if (ReservedTypeNames.Contains(CleanTypeName(property.PropertyType.Name)))
                         {
-                            output.AppendLine($"{indent}    // REMOVED: Property '{property.Name}' contains dots (fully qualified type name)");
+                            string warn = $"REMOVED: Property '{property.Name}' uses reserved type {property.PropertyType.Name}";
+                            output.AppendLine($"{indent}    // {warn}");
                             output.AppendLine();
+                            warnings.Add(warn);
+                            continue;
+                        }
+                        string cppType = GetCppType(property.PropertyType, type);
+                        if (cppType.Contains("__REMOVE__") || cppType.Contains("__SELF_REF__"))
+                        {
+                            string warn = $"{property.PropertyType.Name} is not setup, removed";
+                            output.AppendLine($"{indent}    // {warn}");
+                            output.AppendLine();
+                            warnings.Add(warn);
                             continue;
                         }
 
-                        string cppType = GetCppType(property.PropertyType, type);
-                        if (cppType.Contains("__REMOVE__"))
+                        if (property.Name.Contains("."))
                         {
-                            output.AppendLine($"{indent}    // {property.PropertyType.Name} is not setup, removed");
+                            string warn = $"REMOVED: Property '{property.Name}' contains dots (fully qualified type name)";
+                            output.AppendLine($"{indent}    // {warn}");
                             output.AppendLine();
+                            warnings.Add(warn);
                             continue;
                         }
 
                         if (cppType.Contains("__SELF_REF__"))
                         {
-                            output.AppendLine($"{indent}    // REMOVED: Property '{property.Name}' uses its own class type {CleanTypeName(property.PropertyType.Name)}");
+                            string warn = $"REMOVED: Property '{property.Name}' uses its own class type {CleanTypeName(property.PropertyType.Name)}";
+                            output.AppendLine($"{indent}    // {warn}");
                             output.AppendLine();
+                            warnings.Add(warn);
                             continue;
                         }
 
                         if (type != null && property.PropertyType.IsClass && property.PropertyType != typeof(string) && property.PropertyType.Namespace != null && !property.PropertyType.Namespace.StartsWith("System") && !property.PropertyType.Namespace.StartsWith("UnityEngine") && property.PropertyType != type)
                         {
-                            output.AppendLine($"{indent}    // REMOVED: Property '{property.Name}' uses other class type {CleanTypeName(property.PropertyType.Name)}");
+                            string warn = $"REMOVED: Property '{property.Name}' uses other class type {CleanTypeName(property.PropertyType.Name)}";
+                            output.AppendLine($"{indent}    // {warn}");
                             output.AppendLine();
+                            warnings.Add(warn);
                             continue;
                         }
 
@@ -706,7 +837,7 @@ namespace BNMGameStructureGenerator
                         if (property.CanRead && property.GetMethod != null)
                         {
                             string getterName = $"Get{ToPascalCase(FormatInvalidName(propertyName))}";
-                            if (!generatedNames.Add(getterName)) continue;
+                            if (!generatedNames.Add(getterName)) { continue; }
                             output.AppendLine($"{indent}    {cppType} {getterName}() {{");
                             output.AppendLine($"{indent}        static Method<{cppType}> method = GetClass().GetMethod(O(\"get_{propertyName}\"));");
                             if (!property.GetMethod.IsStatic)
@@ -721,7 +852,7 @@ namespace BNMGameStructureGenerator
                         if (property.CanWrite && property.SetMethod != null)
                         {
                             string setterName = $"Set{ToPascalCase(FormatInvalidName(propertyName))}";
-                            if (!generatedNames.Add(setterName)) continue;
+                            if (!generatedNames.Add(setterName)) { continue; }
                             output.AppendLine($"{indent}    void {setterName}({cppType} value) {{");
                             output.AppendLine($"{indent}        static Method<void> method = GetClass().GetMethod(O(\"set_{propertyName}\"));");
                             if (!property.SetMethod.IsStatic)
@@ -735,19 +866,24 @@ namespace BNMGameStructureGenerator
                     }
                     catch (Exception ex)
                     {
-                        output.AppendLine($"{indent}    // Error generating property {property.Name}: {ex.Message}");
+                        string warn = $"Error generating property {property.Name}: {ex.Message}";
+                        output.AppendLine($"{indent}    // {warn}");
                         output.AppendLine();
+                        warnings.Add(warn);
                     }
                 }
             }
             catch (Exception ex)
             {
-                output.AppendLine($"{indent}    // Error generating properties: {ex.Message}");
+                string warn = $"Error generating properties: {ex.Message}";
+                output.AppendLine($"{indent}    // {warn}");
                 output.AppendLine();
+                warnings.Add(warn);
             }
         }
-        static void GenerateMethodDeclarations(Type type, StringBuilder output, HashSet<string> generatedNames, string indent = "    ")
+        static void GenerateMethodDeclarations(Type type, StringBuilder output, HashSet<string> generatedNames, string indent = "    ", List<string> warnings = null)
         {
+            warnings = warnings ?? new List<string>();
             try
             {
                 BindingFlags methodFlags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static;
@@ -757,46 +893,61 @@ namespace BNMGameStructureGenerator
                 {
                     try
                     {
-                        if (method.Name.Contains("."))
+                        if (ReservedTypeNames.Contains(CleanTypeName(method.ReturnType.Name)))
                         {
-                            output.AppendLine($"{indent}    // REMOVED: Method '{method.Name}' contains dots (fully qualified type name)");
+                            string warn = $"REMOVED: Method '{method.Name}' return type uses reserved type {method.ReturnType.Name}";
+                            output.AppendLine($"{indent}    // {warn}");
                             output.AppendLine();
+                            warnings.Add(warn);
                             continue;
                         }
-
                         string returnType = GetCppType(method.ReturnType, type);
-                        if (returnType.Contains("__REMOVE__"))
+                        if (returnType.Contains("__REMOVE__") || returnType.Contains("__SELF_REF__"))
                         {
-                            output.AppendLine($"{indent}    // {method.ReturnType.Name} is not setup, removed");
+                            string warn = $"{method.ReturnType.Name} is not setup, removed";
+                            output.AppendLine($"{indent}    // {warn}");
                             output.AppendLine();
+                            warnings.Add(warn);
                             continue;
                         }
-
-                        if (returnType.Contains("__SELF_REF__"))
+                        var parameters = method.GetParameters();
+                        bool skipMethod = false;
+                        for (int i = 0; i < parameters.Length; i++)
                         {
-                            output.AppendLine($"{indent}    // REMOVED: Method '{method.Name}' return type uses its own class type {CleanTypeName(method.ReturnType.Name)}");
-                            output.AppendLine();
-                            continue;
+                            var paramInfo = parameters[i];
+                            if (ReservedTypeNames.Contains(CleanTypeName(paramInfo.ParameterType.Name)))
+                            {
+                                string warn = $"REMOVED: Method '{method.Name}' parameter '{paramInfo.Name ?? $"param{i}"}' uses reserved type {paramInfo.ParameterType.Name}";
+                                output.AppendLine($"{indent}    // {warn}");
+                                output.AppendLine();
+                                warnings.Add(warn);
+                                skipMethod = true;
+                                break;
+                            }
+                            string paramCppType = GetCppType(paramInfo.ParameterType, type);
+                            if (paramCppType.Contains("__REMOVE__") || paramCppType.Contains("__SELF_REF__"))
+                            {
+                                string warn = $"{paramInfo.ParameterType.Name} is not setup, removed";
+                                output.AppendLine($"{indent}    // {warn}");
+                                output.AppendLine();
+                                warnings.Add(warn);
+                                skipMethod = true;
+                                break;
+                            }
                         }
-
-                        if (type != null && method.ReturnType.IsClass && method.ReturnType != typeof(string) && method.ReturnType.Namespace != null && !method.ReturnType.Namespace.StartsWith("System") && !method.ReturnType.Namespace.StartsWith("UnityEngine") && method.ReturnType != type)
-                        {
-                            output.AppendLine($"{indent}    // REMOVED: Method '{method.Name}' return type uses other class type {CleanTypeName(method.ReturnType.Name)}");
-                            output.AppendLine();
-                            continue;
-                        }
+                        if (skipMethod) { continue; }
 
                         string methodName = FormatInvalidName(method.Name);
                         if (!generatedNames.Add(methodName)) 
                         {
-                            output.AppendLine($"{indent}    // SKIPPED: Method '{method.Name}' conflicts with existing method '{methodName}'");
+                            string warn = $"SKIPPED: Method '{method.Name}' conflicts with existing method '{methodName}'";
+                            output.AppendLine($"{indent}    // {warn}");
                             output.AppendLine();
+                            warnings.Add(warn);
                             continue;
                         }
-                        var parameters = method.GetParameters();
-
                         var paramList = new List<string>();
-                        bool skipMethod = false;
+                        var validParamNames = MakeValidParams(parameters.Select(p => p.Name ?? $"param{Array.IndexOf(parameters, p)}").ToArray());
                         for (int i = 0; i < parameters.Length; i++)
                         {
                             var paramInfo = parameters[i];
@@ -810,37 +961,8 @@ namespace BNMGameStructureGenerator
                             {
                                 cppType = GetCppType(paramType, type);
                             }
-                            if (cppType.Contains("__REMOVE__"))
-                            {
-                                output.AppendLine($"{indent}    // {paramType.Name} is not setup, removed");
-                                output.AppendLine();
-                                skipMethod = true;
-                                break;
-                            }
-
-                            if (cppType.Contains("__SELF_REF__"))
-                            {
-                                output.AppendLine($"{indent}    // REMOVED: Method '{method.Name}' parameter '{paramInfo.Name ?? $"param{i}"}' uses its own class type {CleanTypeName(paramType.Name)}");
-                                output.AppendLine();
-                                skipMethod = true;
-                                break;
-                            }
-
-                            if (type != null && paramType.IsClass && paramType != typeof(string) && paramType.Namespace != null && !paramType.Namespace.StartsWith("System") && !paramType.Namespace.StartsWith("UnityEngine") && paramType != type)
-                            {
-                                output.AppendLine($"{indent}    // REMOVED: Method '{method.Name}' parameter '{paramInfo.Name ?? $"param{i}"}' uses other class type {CleanTypeName(paramType.Name)}");
-                                output.AppendLine();
-                                skipMethod = true;
-                                break;
-                            }
-
-                            string paramName = paramInfo.Name ?? $"param{i}";
-                            paramList.Add($"{cppType} {paramName}");
+                            paramList.Add($"{cppType} {validParamNames[i]}");
                         }
-                        if (skipMethod) continue;
-
-                        var paramNames = parameters.Select(p => p.Name ?? $"param{Array.IndexOf(parameters, p)}").ToArray();
-                        var validParamNames = MakeValidParams(paramNames);
                         var formattedParamList = new List<string>();
                         for (int i = 0; i < paramList.Count; i++)
                         {
@@ -872,15 +994,19 @@ namespace BNMGameStructureGenerator
                     }
                     catch (Exception ex)
                     {
-                        output.AppendLine($"{indent}    // Error generating method {method.Name}: {ex.Message}");
+                        string warn = $"Error generating method {method.Name}: {ex.Message}";
+                        output.AppendLine($"{indent}    // {warn}");
                         output.AppendLine();
+                        warnings.Add(warn);
                     }
                 }
             }
             catch (Exception ex)
             {
-                output.AppendLine($"{indent}    // Error generating methods: {ex.Message}");
+                string warn = $"Error generating methods: {ex.Message}";
+                output.AppendLine($"{indent}    // {warn}");
                 output.AppendLine();
+                warnings.Add(warn);
             }
         }
         static string GetCppType(Type type, Type currentClass = null)
@@ -1338,6 +1464,17 @@ namespace BNMGameStructureGenerator
             catch (Exception ex)
             {
                 Console.WriteLine($"Warning: Could not validate generated code: {ex.Message}");
+            }
+        }
+        private static string SafeGetNamespace(Type t)
+        {
+            try
+            {
+                return t.Namespace ?? "Global";
+            }
+            catch
+            {
+                return null;
             }
         }
     }
