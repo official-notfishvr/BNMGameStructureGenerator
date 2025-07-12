@@ -459,6 +459,7 @@ namespace BNMGameStructureGenerator
         public static string GetTypeName<T>(T type)
         {
             if (type is Type t) return t.Name;
+            if (type is TypeDef td) return td.Name.ToString();
             if (type is TypeSig ts) return ts.TypeName.ToString();
             return type.ToString();
         }
@@ -590,9 +591,10 @@ namespace BNMGameStructureGenerator
             if (type is GenericInstSig genericSig) return genericSig.GenericArguments[0];
             return type;
         }
-        public static bool IsClassType(object type)
+        public static bool IsClassType<T>(T type)
         {
             if (type is Type t) return t.IsClass;
+            if (type is TypeDef td) return td.IsClass;
             if (type is TypeSig ts) return ts.ToTypeDefOrRef()?.ResolveTypeDef()?.IsClass ?? false;
             return false;
         }
@@ -619,6 +621,34 @@ namespace BNMGameStructureGenerator
             if (field is FieldInfo fi) return fi.IsInitOnly;
             if (field is FieldDef fd) return fd.IsInitOnly;
             return false;
+        }
+        public static string FormatTypeNameForStruct(string typeName, string namespaceName)
+        {
+            string actualTypeName = typeName;
+            if (typeName.Contains("."))
+            {
+                actualTypeName = typeName.Split('.').Last();
+            }
+            
+            string cleanName = CleanTypeName(actualTypeName);
+            
+            string formattedName = cleanName.Trim()
+                .Replace("<", "$")
+                .Replace(">", "$")
+                .Replace("|", "$")
+                .Replace("-", "$")
+                .Replace("`", "$")
+                .Replace("=", "$")
+                .Replace("@", "$")
+                .Replace(":", "_")
+                .Replace(" ", "_")
+                .Trim();
+
+            if (string.IsNullOrEmpty(formattedName)) { return "_"; }
+            if (StartsWithNumber(formattedName)) { formattedName = "_" + formattedName; }
+            if (IsKeyword(formattedName)) { formattedName = "$" + formattedName; }
+
+            return formattedName;
         }
     }
 } 
