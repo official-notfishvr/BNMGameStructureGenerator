@@ -34,16 +34,63 @@ namespace BNMGameStructureGenerator
 
             try
             {
-                if (useReflection)
+                List<object> allTypes = new List<object>();
+                
+                try
                 {
                     Assembly assembly = Assembly.LoadFrom(dllPath);
-                    ProcessAssembly(assembly, singleFileMode, outputDir);
+                    List<Type> reflectionTypes = new List<Type>();
+                    try
+                    {
+                        reflectionTypes.AddRange(assembly.GetTypes());
+                    }
+                    catch (ReflectionTypeLoadException ex)
+                    {
+                        if (ex.Types != null) { reflectionTypes.AddRange(ex.Types.Where(t => t != null)); }
+                    }
+                    allTypes.AddRange(reflectionTypes.Cast<object>());
+                    Console.WriteLine($"Loaded {reflectionTypes.Count} types using reflection");
                 }
-                else
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Warning: Could not load types using reflection: {ex.Message}");
+                }
+
+                try
                 {
                     ModuleDefMD module = ModuleDefMD.Load(dllPath);
-                    ProcessModule(module, singleFileMode, outputDir);
+                    var dnlibTypes = module.GetTypes().Cast<object>().ToList();
+                    allTypes.AddRange(dnlibTypes);
+                    Console.WriteLine($"Loaded {dnlibTypes.Count} types using dnlib");
                 }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Warning: Could not load types using dnlib: {ex.Message}");
+                }
+
+                var uniqueTypes = allTypes
+                    .Where(t => t != null && (Utils.IsClassType(t) || Utils.IsEnum(t)) &&
+                        !Utils.GetFullName(t).Contains("System.Collections") && 
+                        !Utils.GetTypeName(t).Contains("IEnumerator") &&
+                        !Utils.GetTypeName(t).Contains("IEnumerable") && 
+                        !Utils.GetTypeName(t).Contains("ICollection") &&
+                        !Utils.GetTypeName(t).Contains("IList") && 
+                        !Utils.GetTypeName(t).Contains("IDictionary"))
+                    .GroupBy(t => Utils.GetFullName(t))
+                    .Select(g => g.First())
+                    .ToList();
+
+                Console.WriteLine($"Total unique types to process: {uniqueTypes.Count}");
+
+                if (uniqueTypes.Count == 0)
+                {
+                    Console.WriteLine("No valid types found to process.");
+                    Console.WriteLine("Press any key to exit...");
+                    Console.ReadKey();
+                    return;
+                }
+
+                ProcessCombinedTypes(uniqueTypes, singleFileMode, outputDir);
             }
             catch (Exception ex)
             {
@@ -57,58 +104,24 @@ namespace BNMGameStructureGenerator
             Console.WriteLine("Press any key to exit...");
             Console.ReadKey();
         }
-        static void ProcessAssembly(Assembly assembly, bool singleFileMode, string outputDir)
+        static void ProcessCombinedTypes(List<object> types, bool singleFileMode, string outputDir)
         {
             Console.WriteLine(singleFileMode ? "Running in single file mode..." : "Running in folder mode...");
             if (!singleFileMode && Directory.Exists(outputDir)) { Directory.Delete(outputDir, true); }
             if (!singleFileMode) { Directory.CreateDirectory(outputDir); }
 
-            Console.WriteLine($"Successfully loaded: {assembly.GetName().Name}");
-            Console.WriteLine($"Assembly Version: {assembly.GetName().Version}");
+            Console.WriteLine($"Successfully loaded: {types.Count} types");
             Console.WriteLine("Generating C++ headers...");
             Console.WriteLine("=" + new string('=', 50));
             Console.WriteLine();
 
-            List<Type> loadedTypes = new List<Type>();
-            try
-            {
-                loadedTypes.AddRange(assembly.GetTypes());
-            }
-            catch (ReflectionTypeLoadException ex)
-            {
-                if (ex.Types != null)
-                    loadedTypes.AddRange(ex.Types.Where(t => t != null));
-            }
-
-            var classes = loadedTypes.Where(t => t != null && (t.IsClass || t.IsEnum) &&
-                !t.FullName.Contains("System.Collections") && !t.Name.Contains("IEnumerator") &&
-                !t.Name.Contains("IEnumerable") && !t.Name.Contains("ICollection") &&
-                !t.Name.Contains("IList") && !t.Name.Contains("IDictionary")).ToList();
-
-            var safeClasses = classes.Where(t => Utils.SafeGetNamespace(t) != null).ToList();
-            var groupedClasses = safeClasses.GroupBy(t => Utils.SafeGetNamespace(t)).OrderBy(g => g.Key);
-
-            Console.WriteLine($"Found {classes.Count} classes and enums to process...");
-
-            if (singleFileMode) { GenerateSingleFile(classes, groupedClasses.ToArray(), outputDir); }
-            else { GenerateFolderStructure(classes, groupedClasses.ToArray(), outputDir); }
-        }
-        static void ProcessModule(ModuleDefMD module, bool singleFileMode, string outputDir)
-        {
-            Console.WriteLine(singleFileMode ? "Running in single file mode..." : "Running in folder mode...");
-            if (!singleFileMode && Directory.Exists(outputDir)) { Directory.Delete(outputDir, true); }
-            if (!singleFileMode) { Directory.CreateDirectory(outputDir); }
-
-            Console.WriteLine($"Successfully loaded: {module.Name}");
-            Console.WriteLine($"Assembly Version: {module.Assembly?.Version}");
-            Console.WriteLine("Generating C++ headers...");
-            Console.WriteLine("=" + new string('=', 50));
-            Console.WriteLine();
-
-            var classes = module.GetTypes().Where(t => (t.IsClass || t.IsEnum) && 
-                !t.FullName.Contains("System.Collections") && !t.Name.Contains("IEnumerator") && 
-                !t.Name.Contains("IEnumerable") && !t.Name.Contains("ICollection") && 
-                !t.Name.Contains("IList") && !t.Name.Contains("IDictionary")).ToList();
+            var classes = types.Where(t => t != null && (Utils.IsClassType(t) || Utils.IsEnum(t)) &&
+                !Utils.GetFullName(t).Contains("System.Collections") && 
+                !Utils.GetTypeName(t).Contains("IEnumerator") &&
+                !Utils.GetTypeName(t).Contains("IEnumerable") && 
+                !Utils.GetTypeName(t).Contains("ICollection") &&
+                !Utils.GetTypeName(t).Contains("IList") && 
+                !Utils.GetTypeName(t).Contains("IDictionary")).ToList();
 
             var safeClasses = classes.Where(t => Utils.SafeGetNamespace(t) != null).ToList();
             var groupedClasses = safeClasses.GroupBy(t => Utils.SafeGetNamespace(t)).OrderBy(g => g.Key);
@@ -133,8 +146,8 @@ namespace BNMGameStructureGenerator
 
             foreach (var type in classes)
             {
-                if (type is Type t) { definedTypes.Add(Utils.CleanTypeName(t.Name)); }
-                else if (type is TypeDef td) { definedTypes.Add(Utils.CleanTypeName(td.Name)); }
+                string typeName = Utils.GetTypeName(type);
+                definedTypes.Add(Utils.CleanTypeName(typeName));
             }
 
             HashSet<string> generatedEnums = new HashSet<string>();
@@ -151,13 +164,15 @@ namespace BNMGameStructureGenerator
                     var sortedClasses = namespaceGroup.OrderBy(t => Utils.GetTypeName(t));
                     foreach (var type in sortedClasses)
                     {
-                        string typeName = Utils.CleanTypeName(Utils.GetTypeName(type));
-                        if (Utils.ReservedTypeNames.Contains(typeName)) { continue; }
-                        if (generatedTypes.Contains(typeName)) { continue; }
-                        generatedTypes.Add(typeName);
+                        string typeName = Utils.GetTypeName(type);
+                        string typeNamespace = Utils.GetNamespace(type);
+                        string cleanTypeName = Utils.CleanTypeName(typeName);
+                        if (Utils.ReservedTypeNames.Contains(cleanTypeName)) { continue; }
+                        if (generatedTypes.Contains(cleanTypeName)) { continue; }
+                        generatedTypes.Add(cleanTypeName);
                         if (Utils.IsEnum(type))
                         {
-                            string enumName = Utils.FormatInvalidName(typeName);
+                            string enumName = Utils.FormatTypeNameForStruct(typeName, typeNamespace);
                             if (generatedEnums.Contains(enumName)) { continue; }
                             generatedEnums.Add(enumName);
                             string underlyingType = Utils.GetEnumUnderlyingType(type);
@@ -165,7 +180,7 @@ namespace BNMGameStructureGenerator
                         }
                         else
                         {
-                            output.AppendLine($"struct {Utils.FormatInvalidName(typeName)};");
+                            output.AppendLine($"struct {Utils.FormatTypeNameForStruct(typeName, typeNamespace)};");
                         }
                     }
                 }
@@ -175,13 +190,15 @@ namespace BNMGameStructureGenerator
                     var sortedClasses = namespaceGroup.OrderBy(t => Utils.GetTypeName(t));
                     foreach (var type in sortedClasses)
                     {
-                        string typeName = Utils.CleanTypeName(Utils.GetTypeName(type));
-                        if (Utils.ReservedTypeNames.Contains(typeName)) { continue; }
-                        if (generatedTypes.Contains(typeName)) { continue; }
-                        generatedTypes.Add(typeName);
+                        string typeName = Utils.GetTypeName(type);
+                        string typeNamespace = Utils.GetNamespace(type);
+                        string cleanTypeName = Utils.CleanTypeName(typeName);
+                        if (Utils.ReservedTypeNames.Contains(cleanTypeName)) { continue; }
+                        if (generatedTypes.Contains(cleanTypeName)) { continue; }
+                        generatedTypes.Add(cleanTypeName);
                         if (Utils.IsEnum(type))
                         {
-                            string enumName = Utils.FormatInvalidName(typeName);
+                            string enumName = Utils.FormatTypeNameForStruct(typeName, typeNamespace);
                             if (generatedEnums.Contains(enumName)) { continue; }
                             generatedEnums.Add(enumName);
                             string underlyingType = Utils.GetEnumUnderlyingType(type);
@@ -189,7 +206,7 @@ namespace BNMGameStructureGenerator
                         }
                         else
                         {
-                            output.AppendLine($"    struct {Utils.FormatInvalidName(typeName)};");
+                            output.AppendLine($"    struct {Utils.FormatTypeNameForStruct(typeName, typeNamespace)};");
                         }
                     }
                     output.AppendLine("}");
@@ -213,15 +230,17 @@ namespace BNMGameStructureGenerator
 
                 foreach (var type in sortedClasses)
                 {
-                    string typeName = Utils.CleanTypeName(Utils.GetTypeName(type));
-                    if (Utils.ReservedTypeNames.Contains(typeName)) { continue; }
-                    if (generatedTypes.Contains(typeName)) { continue; }
-                    generatedTypes.Add(typeName);
+                    string typeName = Utils.GetTypeName(type);
+                    string typeNamespace = Utils.GetNamespace(type);
+                    string cleanTypeName = Utils.CleanTypeName(typeName);
+                    if (Utils.ReservedTypeNames.Contains(cleanTypeName)) { continue; }
+                    if (generatedTypes.Contains(cleanTypeName)) { continue; }
+                    generatedTypes.Add(cleanTypeName);
                     Console.WriteLine($"Processing: {Utils.GetFullName(type)}");
 
                     if (Utils.IsEnum(type))
                     {
-                        string enumName = Utils.FormatInvalidName(typeName);
+                        string enumName = Utils.FormatTypeNameForStruct(typeName, typeNamespace);
                         if (generatedEnums.Contains(enumName)) { continue; }
                         generatedEnums.Add(enumName);
                         GenerateCppEnum(type, output, isGlobalNamespace);
@@ -273,22 +292,16 @@ namespace BNMGameStructureGenerator
 
                 var sortedClasses = namespaceGroup.OrderBy(t => Utils.GetTypeName(t));
 
-                foreach (var type in sortedClasses)
-                {
-                    string typeName = Utils.CleanTypeName(Utils.GetTypeName(type));
-                    if (Utils.ReservedTypeNames.Contains(typeName)) continue;
-                    if (generatedTypes.Contains(typeName)) continue;
-                    generatedTypes.Add(typeName);
-                }
-
                 HashSet<string> generatedEnums = new HashSet<string>();
 
                 foreach (var type in sortedClasses)
                 {
-                    string typeName = Utils.CleanTypeName(Utils.GetTypeName(type));
-                    if (Utils.ReservedTypeNames.Contains(typeName)) continue;
-                    if (generatedTypes.Contains(typeName)) continue;
-                    generatedTypes.Add(typeName);
+                    string typeName = Utils.GetTypeName(type);
+                    string typeNamespace = Utils.GetNamespace(type);
+                    string cleanTypeName = Utils.CleanTypeName(typeName);
+                    if (Utils.ReservedTypeNames.Contains(cleanTypeName)) continue;
+                    if (generatedTypes.Contains(cleanTypeName)) continue;
+                    generatedTypes.Add(cleanTypeName);
                     Console.WriteLine($"Processing: {Utils.GetFullName(type)}");
 
                     var classContent = new StringBuilder();
@@ -302,11 +315,13 @@ namespace BNMGameStructureGenerator
                     classContent.AppendLine("#include \"BNMResolve.hpp\"");
                     classContent.AppendLine();
 
-                    bool isGlobalNamespace = namespaceName == "Global";
+                    bool isGlobalNamespace = string.IsNullOrEmpty(typeNamespace) || typeNamespace == "Global";
+                    string actualNamespaceDir = isGlobalNamespace ? Path.Combine(outputDir, "Global") : namespaceDir;
+                    Directory.CreateDirectory(actualNamespaceDir);
                     
                     if (!isGlobalNamespace)
                     {
-                        classContent.AppendLine($"namespace {namespaceName.Replace(".", "::")} {{");
+                        classContent.AppendLine($"namespace {typeNamespace.Replace(".", "::")} {{");
                         classContent.AppendLine();
                     }
 
@@ -317,12 +332,14 @@ namespace BNMGameStructureGenerator
                         classContent.AppendLine($"// {prefix}Forward declarations for other types in this namespace");
                         foreach (var otherType in otherTypesInNamespace)
                         {
-                            string otherTypeName = Utils.CleanTypeName(Utils.GetTypeName(otherType));
-                            if (Utils.ReservedTypeNames.Contains(otherTypeName)) continue;
-                            if (generatedEnums.Contains(otherTypeName)) continue;
+                            string otherTypeName = Utils.GetTypeName(otherType);
+                            string otherNamespaceName = Utils.GetNamespace(otherType);
+                            string cleanOtherTypeName = Utils.CleanTypeName(otherTypeName);
+                            if (Utils.ReservedTypeNames.Contains(cleanOtherTypeName)) continue;
+                            if (generatedEnums.Contains(cleanOtherTypeName)) continue;
                             if (Utils.IsEnum(otherType))
                             {
-                                string enumName = Utils.FormatInvalidName(otherTypeName);
+                                string enumName = Utils.FormatTypeNameForStruct(otherTypeName, otherNamespaceName);
                                 if (generatedEnums.Contains(enumName)) continue;
                                 generatedEnums.Add(enumName);
                                 string underlyingType = Utils.GetEnumUnderlyingType(otherType);
@@ -330,7 +347,7 @@ namespace BNMGameStructureGenerator
                             }
                             else
                             {
-                                classContent.AppendLine($"{prefix}struct {Utils.FormatInvalidName(otherTypeName)};");
+                                classContent.AppendLine($"{prefix}struct {Utils.FormatTypeNameForStruct(otherTypeName, otherNamespaceName)};");
                             }
                         }
                         classContent.AppendLine();
@@ -338,7 +355,7 @@ namespace BNMGameStructureGenerator
 
                     if (Utils.IsEnum(type))
                     {
-                        string enumName = Utils.FormatInvalidName(typeName);
+                        string enumName = Utils.FormatTypeNameForStruct(typeName, typeNamespace);
                         if (generatedEnums.Contains(enumName)) continue;
                         generatedEnums.Add(enumName);
                         GenerateCppEnum(type, classContent, isGlobalNamespace);
@@ -350,8 +367,8 @@ namespace BNMGameStructureGenerator
 
                     if (!isGlobalNamespace) { classContent.AppendLine("}"); }
 
-                    string className = Utils.FormatInvalidName(typeName);
-                    string classFilePath = Path.Combine(namespaceDir, $"{className}.hpp");
+                    string className = Utils.FormatTypeNameForStruct(typeName, typeNamespace);
+                    string classFilePath = Path.Combine(actualNamespaceDir, $"{className}.hpp");
                     var finalClassContent = classContent.ToString().Replace("StringComparison", "int");
                     File.WriteAllText(classFilePath, finalClassContent);
                 }
@@ -389,7 +406,9 @@ namespace BNMGameStructureGenerator
             warnings = warnings ?? new List<string>();
 
             string baseClass = Utils.GetBaseClass(type, type);
-            string className = Utils.FormatInvalidName(Utils.CleanTypeName(Utils.GetTypeName(type)));
+            string typeName = Utils.GetTypeName(type);
+            string namespaceName = Utils.GetNamespace(type);
+            string className = Utils.FormatTypeNameForStruct(typeName, namespaceName);
             string indent = isGlobalNamespace ? "" : "    ";
 
             string fullName = Utils.GetFullName(type);
@@ -506,7 +525,9 @@ namespace BNMGameStructureGenerator
         {
             warnings = warnings ?? new List<string>();
             
-            string enumName = Utils.FormatInvalidName(Utils.CleanTypeName(Utils.GetTypeName(type)));
+            string typeName = Utils.GetTypeName(type);
+            string namespaceName = Utils.GetNamespace(type);
+            string enumName = Utils.FormatTypeNameForStruct(typeName, namespaceName);
             string cppUnderlyingType = Utils.GetEnumUnderlyingType(type);
             string indent = isGlobalNamespace ? "" : "    ";
 
@@ -566,8 +587,9 @@ namespace BNMGameStructureGenerator
                     {
                         string methodName = "get_Instance";
                         if (!generatedNames.Add(methodName)) return;
-                        output.AppendLine($"{indent}    static {Utils.FormatInvalidName(Utils.CleanTypeName(t.Name))}* {methodName}() {{");
-                        output.AppendLine($"{indent}        static Method<{Utils.FormatInvalidName(Utils.CleanTypeName(t.Name))}*> method = GetClass().GetMethod(O(\"get_Instance\"));");
+                        string className = Utils.FormatTypeNameForStruct(t.Name, t.Namespace);
+                        output.AppendLine($"{indent}    static {className}* {methodName}() {{");
+                        output.AppendLine($"{indent}        static Method<{className}*> method = GetClass().GetMethod(O(\"get_Instance\"));");
                         output.AppendLine($"{indent}        return method();");
                         output.AppendLine($"{indent}    }}");
                         output.AppendLine();
@@ -577,8 +599,9 @@ namespace BNMGameStructureGenerator
                     {
                         string methodName = "GetInstance";
                         if (!generatedNames.Add(methodName)) return;
-                        output.AppendLine($"{indent}    static {Utils.FormatInvalidName(Utils.CleanTypeName(t.Name))}* {methodName}() {{");
-                        output.AppendLine($"{indent}        static Field<{Utils.FormatInvalidName(Utils.CleanTypeName(t.Name))}*> field = GetClass().GetField(O(\"_instance\"));");
+                        string className = Utils.FormatTypeNameForStruct(t.Name, t.Namespace);
+                        output.AppendLine($"{indent}    static {className}* {methodName}() {{");
+                        output.AppendLine($"{indent}        static Field<{className}*> field = GetClass().GetField(O(\"_instance\"));");
                         output.AppendLine($"{indent}        return field();");
                         output.AppendLine($"{indent}    }}");
                         output.AppendLine();
@@ -593,8 +616,9 @@ namespace BNMGameStructureGenerator
                     {
                         string methodName = "get_Instance";
                         if (!generatedNames.Add(methodName)) return;
-                        output.AppendLine($"{indent}    static {Utils.FormatInvalidName(Utils.CleanTypeName(td.Name))}* {methodName}() {{");
-                        output.AppendLine($"{indent}        static Method<{Utils.FormatInvalidName(Utils.CleanTypeName(td.Name))}*> method = GetClass().GetMethod(O(\"get_Instance\"));");
+                        string className = Utils.FormatTypeNameForStruct(td.Name, td.Namespace?.ToString());
+                        output.AppendLine($"{indent}    static {className}* {methodName}() {{");
+                        output.AppendLine($"{indent}        static Method<{className}*> method = GetClass().GetMethod(O(\"get_Instance\"));");
                         output.AppendLine($"{indent}        return method();");
                         output.AppendLine($"{indent}    }}");
                         output.AppendLine();
@@ -604,8 +628,9 @@ namespace BNMGameStructureGenerator
                     {
                         string methodName = "GetInstance";
                         if (!generatedNames.Add(methodName)) return;
-                        output.AppendLine($"{indent}    static {Utils.FormatInvalidName(Utils.CleanTypeName(td.Name))}* {methodName}() {{");
-                        output.AppendLine($"{indent}        static Field<{Utils.FormatInvalidName(Utils.CleanTypeName(td.Name))}*> field = GetClass().GetField(O(\"_instance\"));");
+                        string className = Utils.FormatTypeNameForStruct(td.Name, td.Namespace?.ToString());
+                        output.AppendLine($"{indent}    static {className}* {methodName}() {{");
+                        output.AppendLine($"{indent}        static Field<{className}*> field = GetClass().GetField(O(\"_instance\"));");
                         output.AppendLine($"{indent}        return field();");
                         output.AppendLine($"{indent}    }}");
                         output.AppendLine();
