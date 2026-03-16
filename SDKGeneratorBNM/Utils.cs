@@ -212,7 +212,17 @@ namespace SDKGeneratorBNM
             string fixedNs = ns.Replace(".", "_");
             foreach (char c in Path.GetInvalidFileNameChars())
                 fixedNs = fixedNs.Replace(c, '_');
-            return fixedNs;
+            var sb = new StringBuilder(fixedNs.Length);
+            foreach (char c in fixedNs)
+            {
+                if (char.IsLetterOrDigit(c) || c == '_')
+                    sb.Append(c);
+                else
+                    sb.Append('_');
+            }
+            if (sb.Length > 0 && char.IsDigit(sb[0]))
+                sb.Insert(0, '_');
+            return sb.ToString();
         }
 
         public static string GetFullCppPath(TypeDefinition type)

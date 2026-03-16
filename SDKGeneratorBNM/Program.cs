@@ -261,6 +261,8 @@ namespace SDKGeneratorBNM
             string ns = Utils.GetNamespace(type);
             if (ns.StartsWith("System") || ns.StartsWith("Unity"))
                 return false;
+            if (ns.StartsWith("<PrivateImplementationDetails"))
+                return false;
             return !ExcludedTypePatterns.Any(p => type.FullName.Contains(p) || type.Name.Contains(p));
         }
 
