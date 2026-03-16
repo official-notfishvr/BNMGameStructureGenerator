@@ -258,6 +258,9 @@ namespace SDKGeneratorBNM
         {
             if (type.IsInterface)
                 return false;
+            string ns = Utils.GetNamespace(type);
+            if (ns.StartsWith("System") || ns.StartsWith("Unity"))
+                return false;
             return !ExcludedTypePatterns.Any(p => type.FullName.Contains(p) || type.Name.Contains(p));
         }
 
