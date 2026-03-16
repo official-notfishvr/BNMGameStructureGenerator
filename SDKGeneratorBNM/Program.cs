@@ -10,6 +10,7 @@ namespace SDKGeneratorBNM
     {
         public static HashSet<string> DefinedTypes = new HashSet<string>();
         private static List<string> DllPaths = new List<string>();
+        private static List<string> DumpCsPaths = new List<string>();
         private const string OutputDir = "SDK";
         private const string OutputExtension = ".hpp";
         private static readonly string[] ExcludedTypePatterns = Array.Empty<string>();
@@ -101,9 +102,9 @@ namespace SDKGeneratorBNM
             foreach (var file in filesToAdd)
                 TryAddDllPath(file);
 
-            if (DllPaths.Count == 0)
+            if (DllPaths.Count == 0 && DumpCsPaths.Count == 0)
             {
-                LogError("No valid DLLs found or specified");
+                LogError("No valid DLLs or dump.cs files found or specified");
                 WaitForExit();
                 return;
             }
@@ -139,31 +140,53 @@ namespace SDKGeneratorBNM
             if (Directory.Exists(path))
             {
                 string dll = Path.Combine(path, "Assembly-CSharp.dll");
+                string dump = Path.Combine(path, "dump.cs");
                 if (File.Exists(dll))
                 {
                     DllPaths.Add(dll);
                     return true;
                 }
-                LogError($"Assembly-CSharp.dll not found in {path}");
+                if (File.Exists(dump))
+                {
+                    DumpCsPaths.Add(dump);
+                    return true;
+                }
+                LogError($"Assembly-CSharp.dll or dump.cs not found in {path}");
                 return false;
             }
-            if (File.Exists(path) && path.EndsWith(".dll"))
+            if (File.Exists(path) && path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             {
                 DllPaths.Add(path);
                 return true;
             }
+            if (File.Exists(path) && path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            {
+                DumpCsPaths.Add(path);
+                return true;
+            }
             string filesPath = Path.Combine("./Files", path);
-            if (File.Exists(filesPath) && filesPath.EndsWith(".dll"))
+            if (File.Exists(filesPath) && filesPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             {
                 DllPaths.Add(filesPath);
                 return true;
             }
-            if (!path.EndsWith(".dll"))
+            if (File.Exists(filesPath) && filesPath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            {
+                DumpCsPaths.Add(filesPath);
+                return true;
+            }
+            if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) && !path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
             {
                 filesPath = Path.Combine("./Files", path + ".dll");
                 if (File.Exists(filesPath))
                 {
                     DllPaths.Add(filesPath);
+                    return true;
+                }
+                filesPath = Path.Combine("./Files", path + ".cs");
+                if (File.Exists(filesPath))
+                {
+                    DumpCsPaths.Add(filesPath);
                     return true;
                 }
             }
@@ -174,7 +197,7 @@ namespace SDKGeneratorBNM
         private static void PrintHelp()
         {
             Console.WriteLine("Usage: SDKGeneratorBNM [file] [options]\n\nArguments:");
-            Console.WriteLine("  file             Path to DLL file (e.g., Assembly-CSharp.dll, MyAssembly.dll)");
+            Console.WriteLine("  file             Path to DLL or dump.cs file (e.g., Assembly-CSharp.dll, dump.cs)");
             Console.WriteLine("                       Can be a full path, filename in ./Files, or just the name\n");
             Console.WriteLine("Options:");
             Console.WriteLine("  -s, --single-file    Generate all types in a single file");
@@ -207,6 +230,18 @@ namespace SDKGeneratorBNM
                 catch (Exception ex)
                 {
                     Console.WriteLine($"Error loading {dllPath}: {ex.Message}");
+                }
+            }
+            foreach (var dumpPath in DumpCsPaths)
+            {
+                try
+                {
+                    var dumpTypes = DumpCsParser.ParseDump(dumpPath);
+                    allTypes.AddRange(dumpTypes);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error loading {dumpPath}: {ex}");
                 }
             }
             return allTypes.Where(t => t != null && IsValidType(t)).Distinct(new TypeDefComparer()).ToList();
@@ -769,7 +804,14 @@ namespace SDKGeneratorBNM
         private static void WaitForExit()
         {
             Console.WriteLine();
-            Console.ReadKey();
+            try
+            {
+                if (!Console.IsInputRedirected)
+                    Console.ReadKey();
+            }
+            catch
+            {
+            }
         }
     }
 

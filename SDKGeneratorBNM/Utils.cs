@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using Mono.Cecil;
@@ -204,7 +205,15 @@ namespace SDKGeneratorBNM
             return (string.IsNullOrEmpty(ns) || ns == "GlobalNamespace") ? "GlobalNamespace" : ns;
         }
 
-        public static string FixNamespace(string ns) => (string.IsNullOrEmpty(ns) || ns == "GlobalNamespace") ? "GlobalNamespace" : ns.Replace(".", "_");
+        public static string FixNamespace(string ns)
+        {
+            if (string.IsNullOrEmpty(ns) || ns == "GlobalNamespace")
+                return "GlobalNamespace";
+            string fixedNs = ns.Replace(".", "_");
+            foreach (char c in Path.GetInvalidFileNameChars())
+                fixedNs = fixedNs.Replace(c, '_');
+            return fixedNs;
+        }
 
         public static string GetFullCppPath(TypeDefinition type)
         {
