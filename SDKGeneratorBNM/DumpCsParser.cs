@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -31,7 +32,7 @@ namespace SDKGeneratorBNM
             "public", "private", "protected", "internal", "static", "virtual", "override", "abstract", "sealed", "extern", "unsafe", "new"
         };
 
-        private static readonly Dictionary<string, Func<ModuleDefinition, TypeReference>> SystemTypeAliases = new Dictionary<string, Func<ModuleDefinition, TypeReference>>(StringComparer.OrdinalIgnoreCase)
+        private static readonly Dictionary<string, Func<ModuleDefinition, TypeReference>> SystemTypeAliases = new Dictionary<string, Func<ModuleDefinition, TypeReference>>(StringComparer.Ordinal)
         {
             { "void", m => m.TypeSystem.Void },
             { "bool", m => m.TypeSystem.Boolean },
@@ -48,6 +49,23 @@ namespace SDKGeneratorBNM
             { "double", m => m.TypeSystem.Double },
             { "string", m => m.TypeSystem.String },
             { "object", m => m.TypeSystem.Object },
+            { "Void", m => m.TypeSystem.Void },
+            { "Boolean", m => m.TypeSystem.Boolean },
+            { "Byte", m => m.TypeSystem.Byte },
+            { "SByte", m => m.TypeSystem.SByte },
+            { "Int16", m => m.TypeSystem.Int16 },
+            { "UInt16", m => m.TypeSystem.UInt16 },
+            { "Int32", m => m.TypeSystem.Int32 },
+            { "UInt32", m => m.TypeSystem.UInt32 },
+            { "Int64", m => m.TypeSystem.Int64 },
+            { "UInt64", m => m.TypeSystem.UInt64 },
+            { "Char", m => m.TypeSystem.Char },
+            { "Single", m => m.TypeSystem.Single },
+            { "Double", m => m.TypeSystem.Double },
+            { "String", m => m.TypeSystem.String },
+            { "Object", m => m.TypeSystem.Object },
+            { "IntPtr", m => m.TypeSystem.IntPtr },
+            { "UIntPtr", m => m.TypeSystem.UIntPtr },
         };
 
         private sealed class ParseState
@@ -65,11 +83,15 @@ namespace SDKGeneratorBNM
 
         public static List<TypeDefinition> ParseDump(string path)
         {
+            Console.WriteLine($"[INFO] Parsing dump.cs: {path}");
+            var sw = Stopwatch.StartNew();
             var module = ModuleDefinition.CreateModule($"Dump_{Path.GetFileNameWithoutExtension(path)}", ModuleKind.Dll);
             var state = new ParseState(module);
             FirstPass(path, state);
+            Console.WriteLine($"[INFO] dump.cs first pass: {state.AllTypes.Count} types ({sw.Elapsed})");
             ResolveBaseTypes(state);
             SecondPass(path, state);
+            Console.WriteLine($"[INFO] dump.cs second pass done ({sw.Elapsed})");
             return state.AllTypes;
         }
 
@@ -162,9 +184,14 @@ namespace SDKGeneratorBNM
             var typeStack = new Stack<(TypeDefinition Type, int Depth)>();
             TypeDefinition pendingType = null;
             var section = MemberSection.None;
+            int lineNo = 0;
+            int typeCount = 0;
 
             foreach (var rawLine in File.ReadLines(path))
             {
+                lineNo++;
+                if (lineNo % 200000 == 0)
+                    Console.WriteLine($"[INFO] dump.cs second pass lines: {lineNo}");
                 var trimmed = rawLine.Trim();
                 if (TryParseNamespaceComment(trimmed, out var ns))
                 {
@@ -175,6 +202,9 @@ namespace SDKGeneratorBNM
                 bool isTypeDecl = false;
                 if (TryParseTypeDeclaration(trimmed, out var decl))
                 {
+                    typeCount++;
+                    if (typeCount % 2000 == 0)
+                        Console.WriteLine($"[INFO] dump.cs second pass types: {typeCount}");
                     var parent = typeStack.Count > 0 ? typeStack.Peek().Type : null;
                     var key = GetCSharpFullName(currentNamespace, parent, decl.Name, decl.GenericArity, decl.HasExplicitGenericArgs);
                     if (!state.TypeMap.TryGetValue(key, out var typeDef))
@@ -393,11 +423,10 @@ namespace SDKGeneratorBNM
         }
         private static void ParseFieldLine(string line, TypeDefinition currentType, ParseState state)
         {
-            if (!line.EndsWith(";") || line.Contains("(") || line.Contains("{"))
-                return;
-
             string code = StripLineComment(line).Trim();
             if (string.IsNullOrEmpty(code))
+                return;
+            if (!code.EndsWith(";") || code.Contains("(") || code.Contains("{"))
                 return;
 
             string valuePart = null;
@@ -801,6 +830,13 @@ namespace SDKGeneratorBNM
 
             if (SystemTypeAliases.TryGetValue(name, out var alias))
                 return alias(state.Module);
+
+            if (!name.Contains("."))
+            {
+                var matches = state.TypeMap.Values.Where(t => t.Name == name).Take(2).ToList();
+                if (matches.Count == 1)
+                    return matches[0];
+            }
 
             string nsFallback = string.Empty;
             string typeName = name;

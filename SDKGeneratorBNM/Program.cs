@@ -290,6 +290,7 @@ namespace SDKGeneratorBNM
                 WriteForwardDeclarations(cw, group, ens, tps);
             ens.Clear();
             tps.Clear();
+            int count = 0;
             foreach (var group in grouped)
             {
                 cw.StartNamespace(group.Key);
@@ -298,6 +299,9 @@ namespace SDKGeneratorBNM
                     if (tps.Contains(type.FullName))
                         continue;
                     tps.Add(type.FullName);
+                    count++;
+                    if (count % 1000 == 0)
+                        Console.WriteLine($"[INFO] Generated {count} types...");
                     if (type.IsEnum)
                     {
                         string name = Utils.FormatTypeNameForStruct(type);
@@ -332,6 +336,8 @@ namespace SDKGeneratorBNM
                     string name = Utils.FormatTypeNameForStruct(type);
                     cw.Save(Path.Combine(dir, $"{name}{OutputExtension}"));
                     count++;
+                    if (count % 1000 == 0)
+                        Console.WriteLine($"[INFO] Generated {count} header files...");
                 }
             }
             GenerateForwardDeclarationsFile(grouped);
@@ -538,7 +544,10 @@ namespace SDKGeneratorBNM
                 mn += "_f";
             if (Config.MethodAccessorStyle == Config.MethodStyle.Accessor)
             {
-                cw.Line($"{(f.IsStatic ? "static " : "")}BNM::Field<{t}>* {f.Name}() {{");
+                string fn = Utils.FormatInvalidName(f.Name);
+                while (!gns.Add(fn))
+                    fn += "_f";
+                cw.Line($"{(f.IsStatic ? "static " : "")}BNM::Field<{t}>* {fn}() {{");
                 cw.Indent();
                 cw.Line($"static BNM::Field<{t}> _field = GetClass().GetField(O(\"{f.Name}\"));");
                 if (!f.IsStatic)
@@ -682,7 +691,7 @@ namespace SDKGeneratorBNM
         {
             var methodSigs = new HashSet<string>();
             var nonMethodNames = new HashSet<string>(gns);
-            foreach (var m in type.Methods.Where(m => !m.IsConstructor && !m.Name.Contains("<") && !m.Name.Contains(".") && !OperatorNames.Contains(m.Name)).OrderBy(m => m.Name).ThenBy(m => m.Parameters.Count))
+            foreach (var m in type.Methods.Where(m => !m.IsConstructor && m.Name != ".ctor" && m.Name != ".cctor" && !m.Name.Contains("<") && !m.Name.Contains(".") && !OperatorNames.Contains(m.Name)).OrderBy(m => m.Name).ThenBy(m => m.Parameters.Count))
             {
                 string mn = Utils.FormatInvalidName(m.Name).Replace(".", "_");
                 bool prob = false;
@@ -719,6 +728,16 @@ namespace SDKGeneratorBNM
                     while (nonMethodNames.Contains($"{mn}_{i}") || methodSigs.Contains($"{mn}_{i}({string.Join(",", pts)})"))
                         i++;
                     fmn = $"{mn}_{i}";
+                }
+                string typeName = Utils.FormatTypeNameForStruct(type);
+                if (fmn == typeName)
+                {
+                    int i = 1;
+                    string baseName = $"{fmn}_m";
+                    string candidate = baseName;
+                    while (nonMethodNames.Contains(candidate) || methodSigs.Contains($"{candidate}({string.Join(",", pts)})"))
+                        candidate = $"{baseName}{i++}";
+                    fmn = candidate;
                 }
                 methodSigs.Add(sk);
                 gns.Add(fmn);
