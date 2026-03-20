@@ -7,11 +7,12 @@ using Mono.Cecil;
 
 namespace SDKGeneratorBNM
 {
-    public class CodeWriter
+    public sealed class CodeWriter
     {
-        private readonly StringBuilder _sb = new StringBuilder();
+        private readonly StringBuilder _sb = new StringBuilder(4096);
         private int _indentLevel;
-        private string _indentString = "    ";
+        private const string IndentStr = "    ";
+
         public HashSet<TypeDefinition> Imports = new HashSet<TypeDefinition>(new TypeDefComparer());
         public string CurrentNamespace = "";
 
@@ -31,7 +32,7 @@ namespace SDKGeneratorBNM
                 return;
             }
             for (int i = 0; i < _indentLevel; i++)
-                _sb.Append(_indentString);
+                _sb.Append(IndentStr);
             _sb.AppendLine(text);
         }
 
@@ -54,46 +55,36 @@ namespace SDKGeneratorBNM
         {
             if (string.IsNullOrEmpty(path))
                 return;
-            var header = new StringBuilder();
+
+            var header = new StringBuilder(512);
             header.AppendLine("#pragma once");
             header.AppendLine("#include <BNMIncludes.hpp>");
             if (Config.UseBNMResolve)
                 header.AppendLine("#include <BNMResolve.hpp>");
 
-            bool isForwardDec = path.EndsWith("ForwardDeclarations.hpp");
+            bool isForwardDec = path.EndsWith("ForwardDeclarations.hpp", StringComparison.Ordinal);
             if (!isForwardDec)
-            {
                 header.AppendLine("#include \"../ForwardDeclarations.hpp\"");
-            }
 
-            var sortedImports = Imports
-                .Where(i => i != null)
-                .Select(i => new
-                {
-                    Namespace = Utils.GetNamespace(i),
-                    Name = Utils.FormatTypeNameForStruct(i),
-                    Type = i,
-                })
-                .GroupBy(i => i.Namespace + "." + i.Name)
-                .Select(g => g.First())
-                .OrderBy(i => i.Namespace)
-                .ThenBy(i => i.Name);
+            var sortedImports = Imports.Where(i => i != null).Select(i => new { Ns = Utils.GetNamespace(i), Name = Utils.FormatTypeNameForStruct(i) }).GroupBy(i => i.Ns + "." + i.Name).Select(g => g.First()).OrderBy(i => i.Ns).ThenBy(i => i.Name);
 
             string currentFileName = Path.GetFileName(path);
-            foreach (var import in sortedImports)
+            foreach (var imp in sortedImports)
             {
-                string importFileName = import.Name + ".hpp";
-                if (import.Namespace == CurrentNamespace && importFileName == currentFileName)
+                string impFile = imp.Name + ".hpp";
+                if (imp.Ns == CurrentNamespace && impFile == currentFileName)
                     continue;
-                string relPath = Utils.GetRelativeIncludePath(CurrentNamespace, import.Namespace, import.Name);
-                header.AppendLine($"#include \"{relPath}\"");
+                string rel = Utils.GetRelativeIncludePath(CurrentNamespace, imp.Ns, imp.Name);
+                header.AppendLine($"#include \"{rel}\"");
             }
             header.AppendLine();
+
             string content = header.ToString() + _sb.ToString().Replace("StringComparison", "int");
-            string saveDir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(saveDir))
-                Directory.CreateDirectory(saveDir);
-            File.WriteAllText(path, content);
+            string dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir))
+                Directory.CreateDirectory(dir);
+
+            File.WriteAllText(path, content, new UTF8Encoding(false, false));
         }
 
         public override string ToString() => _sb.ToString();

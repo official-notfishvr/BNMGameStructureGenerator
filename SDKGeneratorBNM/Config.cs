@@ -1,4 +1,4 @@
-﻿using SDKGeneratorBNM;
+﻿using System;
 
 namespace SDKGeneratorBNM
 {
@@ -19,22 +19,21 @@ namespace SDKGeneratorBNM
         public static NamingStyle MethodNamingStyle = NamingStyle.GetSet;
         public static MethodStyle MethodAccessorStyle = MethodStyle.Wrapper;
         public static bool UseBNMResolve = false; // Use BNMResolve.hpp for (GameObject, Text, etc.) or fallback to Il2CppObject
+        public static string OutputDir = "SDK";
+        public static bool SingleFile = false;
 
         public static string FormatGetterName(string name)
         {
-            string formatted = Utils.ToPascalCase(Utils.FormatInvalidName(name));
-            return MethodNamingStyle == NamingStyle.GetSet ? $"Get{formatted}" : $"get_{Utils.ToCamelCase(Utils.FormatInvalidName(name))}";
+            string n = Utils.FormatInvalidName(name);
+            return MethodNamingStyle == NamingStyle.GetSet ? $"Get{Utils.ToPascalCase(n)}" : $"get_{Utils.ToCamelCase(n)}";
         }
 
         public static string FormatSetterName(string name)
         {
-            string formatted = Utils.ToPascalCase(Utils.FormatInvalidName(name));
-            return MethodNamingStyle == NamingStyle.GetSet ? $"Set{formatted}" : $"set_{Utils.ToCamelCase(Utils.FormatInvalidName(name))}";
+            string n = Utils.FormatInvalidName(name);
+            return MethodNamingStyle == NamingStyle.GetSet ? $"Set{Utils.ToPascalCase(n)}" : $"set_{Utils.ToCamelCase(n)}";
         }
 
-        public static string GetPropertyMethodName(string propertyName, bool isGetter)
-        {
-            return isGetter ? $"get_{propertyName}" : $"set_{propertyName}";
-        }
+        public static string GetPropertyMethodName(string propertyName, bool isGetter) => isGetter ? $"get_{propertyName}" : $"set_{propertyName}";
     }
 }
